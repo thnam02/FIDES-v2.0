@@ -347,6 +347,8 @@ def decide(body: dict) -> tuple[int, dict]:
     if behaviour is not None:
         facts.same_task_sessions = behaviour.n
         facts.behaviour_p_rarity = behaviour.p_rarity if behaviour.usable else None
+        facts.behaviour_top_group = behaviour.top_group or None
+        facts.behaviour_review_direction = behaviour.review_direction or None
     _apply_habit(facts, body, to_us(decided))
     outcome = evaluate(facts, RedisState(STORE.redis), behaviour)
     level_name = STRING_LEVEL[outcome.level]

@@ -41,6 +41,7 @@ SIGNAL_ORDER = (
     "model_p_high",
     "model_p_cost",
     "behaviour_rare",
+    "behaviour_guided",
     "screen_capture_active",
     "device_capability",
     "verified_compromise",
@@ -129,6 +130,8 @@ class Facts:
     p_fraud: float | None = None
     segment: str = "thường"
     behaviour_p_rarity: float | None = None
+    behaviour_top_group: str | None = None
+    behaviour_review_direction: str | None = None
     same_task_sessions: int | None = None
     limit_per_txn: int | None = None
     limit_per_day: int | None = None
@@ -474,6 +477,7 @@ def build_signals(facts: Facts, now: datetime) -> tuple[dict[str, Signal], dict[
         "model_p_high": _signal("model_p_high", _model(facts.p_fraud), "suspicious", "model", observed, now),
         "model_p_cost": _signal("model_p_cost", _model_cost(facts), "suspicious", "model", observed, now),
         "behaviour_rare": _signal("behaviour_rare", behaviour, "suspicious", "sdk", observed, now),
+        "behaviour_guided": _signal("behaviour_guided", _behaviour_guided(facts, behaviour), "suspicious", "sdk", observed, now),
         "screen_capture_active": _signal("screen_capture_active", capture, "suspicious", "device_attestation", observed, now),
         "device_capability": _signal("device_capability", capability, "suspicious", "device_attestation", observed, now),
         "verified_compromise": _signal("verified_compromise", device_verified, "verified", "device_attestation", observed, now),
@@ -607,6 +611,22 @@ def _behaviour(facts: Facts) -> str:
     if facts.behaviour_p_rarity is None:
         return "unknown"
     return "present" if facts.behaviour_p_rarity <= float(threshold("behaviour_p_rarity_at_most")) else "absent"
+
+
+def _behaviour_guided(facts: Facts, rare: str) -> str:
+    """Hiếm và nhóm dẫn đầu là đọc số, rời app, hoặc xác nhận nhanh. Chậm đơn thuần không đủ."""
+    if rare == "unknown":
+        return "unknown"
+    if rare != "present":
+        return "absent"
+    top = facts.behaviour_top_group or ""
+    if top in {"dictation", "app_switch"}:
+        return "present"
+    if top == "review" and facts.behaviour_review_direction == "fast":
+        return "present"
+    if not top:
+        return "unknown"
+    return "absent"
 
 
 def _device(state: str | None) -> tuple[str, str, str]:
@@ -766,7 +786,7 @@ def _reasons(facts: Facts, rules: list[dict], signals: dict[str, Signal], funds:
             if not signals.get(name) or signals[name].status != "present":
                 continue
             code = contract_code(name, facts.call_state)
-            if name == "behaviour_rare":
+            if name in {"behaviour_rare", "behaviour_guided"}:
                 if BASELINE_RANK.get(baseline, 0) < BASELINE_RANK["medium"]:
                     continue
                 phrase = ""
@@ -780,6 +800,25 @@ def _reasons(facts: Facts, rules: list[dict], signals: dict[str, Signal], funds:
         if rule["id"] == "R_SIMO":
             add(contract_code("recipient_simo_flag"), SIMO_TEXT)
     return rows
+
+
+def _behaviour_phrase(facts: Facts) -> str:
+    top = facts.behaviour_top_group or ""
+    if top == "dictation":
+        return "Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho."
+    if top == "review" and facts.behaviour_review_direction == "fast":
+        return "Bạn xác nhận nhanh bất thường so với thường lệ."
+    if top == "review":
+        return "Bạn xem lại lâu hơn thường lệ."
+    if top == "app_switch":
+        return "Bạn rời ứng dụng nhiều lần trong lúc chuyển tiền."
+    if top == "rhythm":
+        return "Bạn dừng lâu hơn thường lệ giữa các bước."
+    if top == "corrections":
+        return "sửa nhiều hơn thường lệ"
+    if top == "navigation":
+        return "quay lại màn hình nhiều hơn thường lệ"
+    return "Cách thao tác khác với những lần chuyển cùng loại trước đây."
 
 
 def _call_text(facts: Facts) -> str:
@@ -821,8 +860,8 @@ def _reason_text(name: str, facts: Facts, funds: list[dict]) -> str:
         if int(facts.amount) >= 10_000_000:
             return f"Số tiền lớn và {base[:1].lower()}{base[1:]}"
         return base
-    if name == "behaviour_rare":
-        return "Cách thao tác khác với những lần chuyển cùng loại trước đây."
+    if name in {"behaviour_rare", "behaviour_guided"}:
+        return _behaviour_phrase(facts)
     if name == "screen_capture_active":
         return "Màn hình đang bị ghi hoặc chiếu."
     if name == "device_capability":

@@ -198,6 +198,9 @@ def _plain(value):
     if value is None:
         return None
     if isinstance(value, BaseModel):
+        # Số cụm vắng nghĩa là không biết. Không gửi null như thể bằng không.
+        if type(value).__name__ == "BehaviourIn":
+            return value.model_dump(exclude_none=True)
         return value.model_dump()
     return value
 
@@ -459,6 +462,9 @@ class BehaviourIn(BaseModel):
     background_count: int
     background_total_ms: int
     session_duration_ms: int
+    payee_burst_count: int | None = None
+    payee_mean_burst_len: float | None = None
+    payee_inter_burst_gap_median_ms: float | None = None
 
 
 class ExperimentIn(BaseModel):
@@ -1603,7 +1609,7 @@ def store_experiment_session(body: ExperimentSessionIn) -> dict:
     now = CLOCK.now()
     raw = hash_accounts(body.raw_events) if body.raw_events is not None else None
     call = json.dumps(hash_accounts(body.call.model_dump()))
-    features = json.dumps(hash_accounts(body.behaviour_features.model_dump()))
+    features = json.dumps(hash_accounts(body.behaviour_features.model_dump(exclude_none=True)))
     with connect() as conn:
         conn.execute(SCHEMA)
         _ensure_experiment_column(conn)

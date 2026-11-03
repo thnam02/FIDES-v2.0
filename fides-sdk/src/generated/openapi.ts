@@ -539,6 +539,10 @@ export interface components {
             background_count: number;
             background_total_ms: number;
             session_duration_ms: number;
+            /** Chỉ khi gõ số tài khoản. Vắng nghĩa là không biết. */
+            payee_burst_count?: number;
+            payee_mean_burst_len?: number;
+            payee_inter_burst_gap_median_ms?: number;
         };
         /**
          * @description Mục đích khách chọn, hoặc not_asked khi app chưa hỏi. Engine đọc.

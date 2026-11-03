@@ -233,11 +233,21 @@ def test_export_row_hashes_account_ids():
             "session_index": 1,
             "task_type": "new_typed",
             "call": CALL,
-            "behaviour_features": {"account_id": "ZVAY000000000001", "median_gap_ms": 10},
+            "behaviour_features": {
+                "account_id": "ZVAY000000000001",
+                "median_gap_ms": 10,
+                "payee_burst_count": 4,
+                "payee_mean_burst_len": 3,
+                "payee_inter_burst_gap_median_ms": 3500,
+            },
             "decision": {
                 "level": 2,
                 "rules_fired": ["R_BEHAVIOUR_GUIDED"],
-                "reasons": [{"code": "call_active", "text": "Có cuộc gọi đang diễn ra trong phiên này."}, {"code": "new_payee", "text": "Chưa từng chuyển tới người nhận này."}],
+                "reasons": [
+                    {"code": "call_active", "text": "Có cuộc gọi đang diễn ra trong phiên này."},
+                    {"code": "new_payee", "text": "Chưa từng chuyển tới người nhận này."},
+                    {"code": "behaviour_guided", "text": "Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho."},
+                ],
                 "evidence_card": {"behaviour_score": 0.4, "p_rarity": 0.03, "baseline_quality": "high"},
             },
         }
@@ -252,7 +262,11 @@ def test_export_row_hashes_account_ids():
     assert row["baseline_quality"] == "high"
     assert row["level"] == 2
     assert row["rules_fired"] == '["R_BEHAVIOUR_GUIDED"]'
-    assert row["reason_codes"] == '["call_active", "new_payee"]'
+    assert row["reason_codes"] == '["call_active", "new_payee", "behaviour_guided"]'
+    features = json.loads(row["features"])
+    assert features["payee_burst_count"] == 4
+    assert features["payee_mean_burst_len"] == 3
+    assert features["payee_inter_burst_gap_median_ms"] == 3500
 
 
 def test_experiment_transfer_completes_and_a_plain_transfer_still_holds(bank):

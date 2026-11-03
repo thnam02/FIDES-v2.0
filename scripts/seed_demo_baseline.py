@@ -50,17 +50,20 @@ SCENE_C = "A0002119"
 
 ICT = ZoneInfo("Asia/Ho_Chi_Minh")
 ORDINARY = {
-    "median_gap_ms": 805.2112291861524,
-    "p90_gap_ms": 2206.6761287252866,
-    "pause_to_action_ratio": 0.1799915702151184,
-    "review_dwell_ms": 1409.8633588362977,
-    "background_total_ms": 1802.2294266325746,
+    "median_gap_ms": 831.0210845522126,
+    "p90_gap_ms": 2279.7838136013606,
+    "pause_to_action_ratio": 0.18471028781378585,
+    "review_dwell_ms": 1473.5414940881667,
+    "background_total_ms": 1814.7674765589447,
+    "payee_mean_burst_len": 10.0,
+    "payee_inter_burst_gap_median_ms": 1519.8558207524068,
+    "payee_burst_count": 1.0,
     "burst_count": 2.0,
     "edit_count": 1.0,
     "backtrack_count": 0.0,
     "screen_revisit_count": 1.0,
     "background_count": 1.0,
-    "session_duration_ms": 41591.766409080185,
+    "session_duration_ms": 41829.83031086509,
 }
 
 

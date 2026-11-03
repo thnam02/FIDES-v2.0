@@ -1,5 +1,6 @@
 import {
   DEFAULT_BURST_GAP_MS,
+  PAYEE_BURST_GAP_MS,
   type BehaviourFeatures,
   type FeatureConfig,
   type SessionEvent,
@@ -17,6 +18,9 @@ const ZERO: BehaviourFeatures = {
   background_count: 0,
   background_total_ms: 0,
   session_duration_ms: 0,
+  payee_burst_count: 0,
+  payee_mean_burst_len: 0,
+  payee_inter_burst_gap_median_ms: 0,
 }
 
 function ordered(events: SessionEvent[]): SessionEvent[] {
@@ -102,21 +106,50 @@ function navigation(events: SessionEvent[]): { backtrack: number; revisit: numbe
   for (const event of events) {
     if (event.type !== "screen_enter" || !event.screen) continue
     const name = event.screen
-    if (seen.has(name)) revisit += 1
-    seen.add(name)
-    if (stack.length === 0 || stack[stack.length - 1] === name) {
-      if (stack.length === 0) stack.push(name)
+    if (stack.length > 0 && stack[stack.length - 1] === name) {
+      if (seen.has(name)) revisit += 1
+      seen.add(name)
       continue
     }
     const index = stack.lastIndexOf(name)
     if (index >= 0) {
       backtrack += 1
       stack.splice(index + 1)
+      seen.add(name)
       continue
     }
+    if (seen.has(name)) revisit += 1
+    seen.add(name)
     stack.push(name)
   }
   return { backtrack, revisit }
+}
+
+/** Cụm phím ô số tài khoản. Một phím lẻ là cụm dài 1. Khoảng ≥ 1000 ms tách cụm. */
+function dictation(events: SessionEvent[]): { count: number; mean: number; gap: number } {
+  const ticks = events.filter((event) => event.type === "key_tick" && event.payee === true)
+  if (ticks.length === 0) return { count: 0, mean: 0, gap: 0 }
+  const lengths: number[] = []
+  const gaps: number[] = []
+  let length = 1
+  let previous = ticks[0].t
+  let burstEnd = ticks[0].t
+  for (let index = 1; index < ticks.length; index += 1) {
+    const gap = Math.max(0, ticks[index].t - previous)
+    if (gap < PAYEE_BURST_GAP_MS) {
+      length += 1
+      burstEnd = ticks[index].t
+    } else {
+      lengths.push(length)
+      gaps.push(ticks[index].t - burstEnd)
+      length = 1
+      burstEnd = ticks[index].t
+    }
+    previous = ticks[index].t
+  }
+  lengths.push(length)
+  const mean = lengths.reduce((sum, item) => sum + item, 0) / lengths.length
+  return { count: lengths.length, mean, gap: gaps.length === 0 ? 0 : median([...gaps].sort((left, right) => left - right)) }
 }
 
 function reviewDwell(events: SessionEvent[], spans: Array<[number, number]>): number {
@@ -152,6 +185,7 @@ export function computeFeatures(events: SessionEvent[], config: FeatureConfig = 
   const action = gaps.filter((gap) => gap < limit).reduce((sum, gap) => sum + gap, 0)
   const spans = backgroundSpans(rows)
   const nav = navigation(rows)
+  const typed = dictation(rows)
   return {
     median_gap_ms: median(sorted),
     p90_gap_ms: percentile90(sorted),
@@ -164,5 +198,8 @@ export function computeFeatures(events: SessionEvent[], config: FeatureConfig = 
     background_count: rows.filter((event) => event.type === "app_background").length,
     background_total_ms: Math.round(spans.reduce((sum, [left, right]) => sum + (right - left), 0)),
     session_duration_ms: Math.round(rows[rows.length - 1].t - rows[0].t),
+    payee_burst_count: typed.count,
+    payee_mean_burst_len: typed.mean,
+    payee_inter_burst_gap_median_ms: typed.gap,
   }
 }

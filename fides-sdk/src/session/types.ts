@@ -23,6 +23,8 @@ export type SessionEvent = {
   t: number
   field?: string
   screen?: string
+  /** true khi phím thuộc ô số tài khoản. Không lưu số. */
+  payee?: boolean
 }
 
 export type BehaviourFeatures = {
@@ -37,6 +39,10 @@ export type BehaviourFeatures = {
   background_count: number
   background_total_ms: number
   session_duration_ms: number
+  /** Chỉ có khi gõ số tài khoản. QR, dán và người nhận đã lưu bỏ các trường này. */
+  payee_burst_count?: number
+  payee_mean_burst_len?: number
+  payee_inter_burst_gap_median_ms?: number
 }
 
 export type FeatureConfig = {
@@ -45,6 +51,8 @@ export type FeatureConfig = {
 }
 
 export const DEFAULT_BURST_GAP_MS = 1500
+/** Cụm gõ số tài khoản. Riêng với burst của cả phiên. */
+export const PAYEE_BURST_GAP_MS = 1000
 
 export type CallStateName = "active" | "ended_in_session" | "none" | "unknown"
 export type CallObservability = "supported_observed" | "supported_not_observed" | "unavailable"

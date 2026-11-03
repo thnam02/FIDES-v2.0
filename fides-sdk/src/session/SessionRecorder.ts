@@ -30,7 +30,7 @@ type NoteInput = {
   t?: number
   field?: string
   screen?: string
-  /** Chỉ ô người nhận mới đổi task_type. Không lưu vào sự kiện. */
+  /** Chỉ ô người nhận mới đổi task_type. Sự kiện chỉ giữ cờ, không giữ số. */
   payee?: boolean
 }
 
@@ -58,6 +58,7 @@ function sanitize(input: NoteInput, now: number): SessionEvent | null {
   if (input.type === "screen_enter" && input.screen && NAME.test(input.screen)) {
     event.screen = input.screen
   }
+  if (input.type === "key_tick" && input.payee === true) event.payee = true
   return event
 }
 
@@ -65,6 +66,7 @@ function clone(event: SessionEvent): SessionEvent {
   const copy: SessionEvent = { type: event.type, t: event.t }
   if (event.field) copy.field = event.field
   if (event.screen) copy.screen = event.screen
+  if (event.payee === true) copy.payee = true
   return copy
 }
 
@@ -135,6 +137,11 @@ export class SessionRecorder {
     }
     this.note({ type: "confirm_tap" })
     const features = computeFeatures(this.events, { burst_gap_ms: this.burstGapMs })
+    if (this.taskType !== "new_typed") {
+      delete features.payee_burst_count
+      delete features.payee_mean_burst_len
+      delete features.payee_inter_burst_gap_median_ms
+    }
     const raw = this.experiment ? this.events.map(clone) : undefined
     const snapshot: SessionSnapshot = {
       task_type: this.taskType,

@@ -1156,6 +1156,18 @@ components:
         session_duration_ms:
           type: integer
           minimum: 0
+        payee_burst_count:
+          type: number
+          minimum: 0
+          description: Số cụm gõ ô số tài khoản. Chỉ khi task_type là new_typed. Vắng nghĩa là không biết, không phải không có cụm.
+        payee_mean_burst_len:
+          type: number
+          minimum: 0
+          description: Số phím trung bình mỗi cụm. Bỏ khi không có cụm.
+        payee_inter_burst_gap_median_ms:
+          type: number
+          minimum: 0
+          description: Trung vị khoảng nghỉ giữa các cụm. Bỏ khi chỉ có một cụm.
     TransferPurpose:
       type: string
       enum:

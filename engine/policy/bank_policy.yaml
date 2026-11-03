@@ -118,7 +118,10 @@ behaviour_directions:
   p90_gap_ms: up
   burst_count: up
   pause_to_action_ratio: up
-  review_dwell_ms: up
+  review_dwell_ms: both
+  payee_burst_count: up
+  payee_mean_burst_len: down
+  payee_inter_burst_gap_median_ms: up
   edit_count: up
   backtrack_count: up
   screen_revisit_count: up
@@ -230,7 +233,7 @@ rules:
   - id: R_BEHAVIOUR_GUIDED
     level: 2
     group: B
-    all_present: [behaviour_rare, has_call, beneficiary_is_new]
+    all_present: [behaviour_guided, has_call, beneficiary_is_new]
     baseline_at_least: medium
     needs_call: true
   - id: R_BEHAVIOUR_ONLY

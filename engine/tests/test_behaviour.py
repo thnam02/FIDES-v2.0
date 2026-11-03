@@ -180,8 +180,22 @@ def test_quality_bands_and_gating():
             funds_events=[],
         )
     )
-    assert "R_BEHAVIOUR_GUIDED" in guided.rules_fired
-    assert guided.level == 2
+    assert "R_BEHAVIOUR_GUIDED" not in guided.rules_fired
+    assert "R_BEHAVIOUR_ONLY" in guided.rules_fired
+    assert guided.level == 1
+    dictated = evaluate(
+        _facts(
+            call_state="active",
+            new_payee=True,
+            behaviour_p_rarity=0.01,
+            same_task_sessions=8,
+            behaviour_top_group="dictation",
+            p_fraud=0.0,
+            funds_events=[],
+        )
+    )
+    assert "R_BEHAVIOUR_GUIDED" in dictated.rules_fired
+    assert dictated.level == 2
     simo = evaluate(
         _facts(
             simo_listed=True,
@@ -297,6 +311,50 @@ def test_shipped_reference_is_labelled_synthetic():
     assert len(loaded["baseline_n"]) == len(loaded["scores"])
     assert loaded["population"]["background_total_ms"]["mad"] > 0
     assert empirical_p(max(loaded["scores"]) + 1, loaded["scores"]) < empirical_p(min(loaded["scores"]), loaded["scores"])
+
+
+def test_review_is_two_sided_and_dictation_is_skipped_off_typed():
+    population = _pop(1400.0, 300.0)
+    fast = score_features(_flat(400.0), [], population, _up(), task_type="new_typed")
+    slow = score_features(_flat(2400.0), [], population, _up(), task_type="new_typed")
+    assert fast.review_direction == "fast"
+    assert slow.review_direction == "slow"
+    assert fast.feature_scores["review_dwell_ms"] > 0
+    assert slow.feature_scores["review_dwell_ms"] > 0
+    typed = _flat(1.0)
+    typed["payee_burst_count"] = 4
+    typed["payee_mean_burst_len"] = 3
+    typed["payee_inter_burst_gap_median_ms"] = 3500
+    directions = _up()
+    directions["payee_mean_burst_len"] = "down"
+    on_typed = score_features(typed, [], population, directions, task_type="new_typed")
+    on_qr = score_features(typed, [], population, directions, task_type="qr")
+    assert "dictation" in on_typed.groups
+    assert "dictation" not in on_qr.groups
+    assert on_qr.top_group != "dictation"
+
+
+def test_guided_signal_follows_the_top_group():
+    base = dict(
+        call_state="active",
+        new_payee=True,
+        behaviour_p_rarity=0.01,
+        same_task_sessions=10,
+        p_fraud=0.0,
+        funds_events=[],
+        task_type="new_typed",
+    )
+    rhythm = evaluate(_facts(**base, behaviour_top_group="rhythm"))
+    assert rhythm.level == 1
+    assert "R_BEHAVIOUR_GUIDED" not in rhythm.rules_fired
+    assert "R_BEHAVIOUR_ONLY" in rhythm.rules_fired
+    for group, direction in (("dictation", None), ("app_switch", None), ("review", "fast")):
+        out = evaluate(_facts(**base, behaviour_top_group=group, behaviour_review_direction=direction))
+        assert out.level == 2
+        assert "R_BEHAVIOUR_GUIDED" in out.rules_fired
+    slow = evaluate(_facts(**base, behaviour_top_group="review", behaviour_review_direction="slow"))
+    assert slow.level == 1
+    assert "R_BEHAVIOUR_GUIDED" not in slow.rules_fired
 
 
 def test_one_sided_helper_matches_zero_when_the_shift_is_the_other_way():

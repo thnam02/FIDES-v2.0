@@ -70,6 +70,7 @@ def test_capture_and_guided_are_group_b_only():
             task_type="new_typed",
             behaviour_p_rarity=0.01,
             same_task_sessions=8,
+            behaviour_top_group="dictation",
         )
     )
     assert guided.level == 2
