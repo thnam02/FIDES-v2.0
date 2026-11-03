@@ -309,13 +309,14 @@ def _rarity(features: dict, history: list[dict], population: dict, reference: li
     return empirical_p(scored.score, reference)
 
 
-def _artifact(task: str = "new_typed") -> tuple[dict, list[float], list[int], str]:
+def _artifact(task: str = "new_typed") -> tuple[dict, list[float], list[int], str, list[float]]:
     loaded = load_reference(task)
     if not loaded:
         raise SystemExit(f"missing behaviour reference for {task}")
     scores = [float(item) for item in loaded["scores"]]
     sizes = [int(item) for item in loaded.get("baseline_n") or []]
-    return loaded["population"], scores, sizes, str(loaded.get("provenance") or "")
+    guided = [float(item) for item in loaded.get("guided_scores") or []]
+    return loaded["population"], scores, sizes, str(loaded.get("provenance") or ""), guided
 
 
 def _slice_reference(scores: list[float], sizes: list[int], n_prior: int | None) -> list[float]:
@@ -353,7 +354,7 @@ def _hit_rate(probes, population, reference, cfg, gap: float, extra: int) -> tup
 def recovery(people: int = 400) -> None:
     """Đường phát hiện. p_rarity dùng reference đã ghi, cùng số phiên nền với probe."""
     cfg = settings()
-    population, scores, sizes, provenance = _artifact()
+    population, scores, sizes, provenance, _guided = _artifact()
     same = _slice_reference(scores, sizes, 6)
     rng = random.Random(7)
     probes = _probes(rng, people, 6)
@@ -378,7 +379,7 @@ def recovery(people: int = 400) -> None:
 
 def sensitivity(people: int = 400) -> None:
     cfg = settings()
-    population, scores, sizes, provenance = _artifact()
+    population, scores, sizes, provenance, _guided = _artifact()
     rng = random.Random(11)
     print(f"baseline-size sensitivity ({provenance}, gaps only, null matched to prior-session count)")
     print("prior false-alarm detection_+30% detection_+50%")
@@ -433,19 +434,14 @@ def _power_at(participants: int, dz: float, reps: int = 2000, seed: int = 1) -> 
     return float(np.mean(np.abs(stat) >= _t_crit(participants - 1)))
 
 
-def _is_guided(scored) -> bool:
-    if scored.top_group in {"dictation", "app_switch"}:
-        return True
-    return scored.top_group == "review" and scored.review_direction == "fast"
-
-
 def pattern_rates(people: int = 400) -> None:
-    """Tỷ lệ phát hiện cụm đọc số so với nói chuyện chậm, ở 6 và 10 phiên nền."""
+    """Tỷ lệ behaviour_rare và behaviour_guided cho phiên được đọc số và phiên nói chậm."""
     cfg = settings()
-    population, scores, sizes, provenance = _artifact()
+    population, scores, sizes, provenance, guided_scores = _artifact()
     print(f"pattern rates ({provenance})")
     for n_prior in (6, 10):
         reference = _slice_reference(scores, sizes, n_prior)
+        guided_reference = _slice_reference(guided_scores, sizes, n_prior)
         rng = random.Random(19 + n_prior)
         guided_rare = guided_hit = slow_rare = slow_hit = 0
         for _ in range(people):
@@ -456,8 +452,9 @@ def pattern_rates(people: int = 400) -> None:
             for kind, features in (("guided", guided), ("slow", slow)):
                 scored = score_features(features, history, population, cfg["directions"], cfg["prior"], cfg["floor"], "new_typed")
                 rarity = empirical_p(scored.score, reference)
+                guided_p = empirical_p(scored.guided_score, guided_reference)
                 rare = rarity is not None and rarity <= 0.05
-                hit = rare and _is_guided(scored)
+                hit = guided_p is not None and guided_p <= 0.05
                 if kind == "guided":
                     guided_rare += int(rare)
                     guided_hit += int(hit)
@@ -465,11 +462,11 @@ def pattern_rates(people: int = 400) -> None:
                     slow_rare += int(rare)
                     slow_hit += int(hit)
         print(
-            f"prior {n_prior} guided rare {guided_rare / people:.3f} ({guided_rare}/{people}) "
-            f"guided-pattern {guided_hit / people:.3f} ({guided_hit}/{people}) "
-            f"slow-talk rare {slow_rare / people:.3f} ({slow_rare}/{people}) "
-            f"slow-talk-pattern {slow_hit / people:.3f} ({slow_hit}/{people}) "
-            f"reference {len(reference)}"
+            f"prior {n_prior} guided behaviour_rare {guided_rare / people:.3f} ({guided_rare}/{people}) "
+            f"behaviour_guided {guided_hit / people:.3f} ({guided_hit}/{people}) "
+            f"slow-talk behaviour_rare {slow_rare / people:.3f} ({slow_rare}/{people}) "
+            f"behaviour_guided {slow_hit / people:.3f} ({slow_hit}/{people}) "
+            f"reference {len(reference)} guided-reference {len(guided_reference)}"
         )
 
 

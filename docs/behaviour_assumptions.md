@@ -18,4 +18,6 @@ Một cuộc gọi nhân khoảng nghỉ nhịp và thời gian xem lại với 
 
 Phiên được đọc số gồm nhiều cụm 2–4 chữ số, nghỉ 2–5 giây, và không rời ứng dụng. Công tắc demo và ca đánh giá dùng đúng hình đó: bốn cụm, trung bình ba chữ số mỗi cụm, nghỉ giữa cụm 3,5 giây, `background_count` và `background_total_ms` bằng 0. Nhịp và thời gian xem lại giữ mức thường.
 
-Điểm phiên là trung bình các nhóm thực sự được chấm. Nhóm đọc số vắng không bị tính là 0.
+Điểm phiên là trung bình các nhóm thực sự được chấm. Nhóm đọc số vắng không bị tính là 0. Điểm này vẫn là `behaviour_rare`, chỉ dùng cho mức 1.
+
+Điểm hướng dẫn là nhóm cao nhất trong ba nhóm: đọc số, rời ứng dụng, và xem lại chỉ khi nhanh hơn tâm. Xem lại chậm không vào điểm này. Reference lưu phân phối điểm hướng dẫn của các phiên thường (`guided_scores`), cùng cách xếp hạng với điểm phiên. Ngưỡng `behaviour_guided_p_at_most` = 0,05 cũng là giá trị thiết kế trên phân phối này.

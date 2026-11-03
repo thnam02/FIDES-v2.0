@@ -130,7 +130,9 @@ class Facts:
     p_fraud: float | None = None
     segment: str = "thường"
     behaviour_p_rarity: float | None = None
+    behaviour_guided_p: float | None = None
     behaviour_top_group: str | None = None
+    behaviour_guided_group: str | None = None
     behaviour_review_direction: str | None = None
     same_task_sessions: int | None = None
     limit_per_txn: int | None = None
@@ -477,7 +479,7 @@ def build_signals(facts: Facts, now: datetime) -> tuple[dict[str, Signal], dict[
         "model_p_high": _signal("model_p_high", _model(facts.p_fraud), "suspicious", "model", observed, now),
         "model_p_cost": _signal("model_p_cost", _model_cost(facts), "suspicious", "model", observed, now),
         "behaviour_rare": _signal("behaviour_rare", behaviour, "suspicious", "sdk", observed, now),
-        "behaviour_guided": _signal("behaviour_guided", _behaviour_guided(facts, behaviour), "suspicious", "sdk", observed, now),
+        "behaviour_guided": _signal("behaviour_guided", _behaviour_guided(facts), "suspicious", "sdk", observed, now),
         "screen_capture_active": _signal("screen_capture_active", capture, "suspicious", "device_attestation", observed, now),
         "device_capability": _signal("device_capability", capability, "suspicious", "device_attestation", observed, now),
         "verified_compromise": _signal("verified_compromise", device_verified, "verified", "device_attestation", observed, now),
@@ -599,34 +601,31 @@ def _model_cost(facts: Facts) -> str:
     return "present" if facts.p_fraud >= cost_tau(float(facts.amount), facts.segment) else "absent"
 
 
-def _behaviour(facts: Facts) -> str:
-    """Baseline thấp hoặc chưa có thì behaviour_rare là unknown, kể cả khi p đã tính."""
+def _behaviour_ready(facts: Facts) -> bool:
     block = load_policy().get("behavioural_baseline") or {}
     minimum = str(block.get("min_quality") or "medium")
     needed = int(block.get("min_sessions_for_level_2", threshold("behaviour_baseline_medium_sessions")))
     sessions = 0 if facts.same_task_sessions is None else int(facts.same_task_sessions)
     quality = _baseline(facts.same_task_sessions)
-    if sessions < needed or BASELINE_RANK.get(quality, 0) < BASELINE_RANK.get(minimum, 2):
+    return sessions >= needed and BASELINE_RANK.get(quality, 0) >= BASELINE_RANK.get(minimum, 2)
+
+
+def _behaviour(facts: Facts) -> str:
+    """Baseline thấp hoặc chưa có thì behaviour_rare là unknown, kể cả khi p đã tính."""
+    if not _behaviour_ready(facts):
         return "unknown"
     if facts.behaviour_p_rarity is None:
         return "unknown"
     return "present" if facts.behaviour_p_rarity <= float(threshold("behaviour_p_rarity_at_most")) else "absent"
 
 
-def _behaviour_guided(facts: Facts, rare: str) -> str:
-    """Hiếm và nhóm dẫn đầu là đọc số, rời app, hoặc xác nhận nhanh. Chậm đơn thuần không đủ."""
-    if rare == "unknown":
+def _behaviour_guided(facts: Facts) -> str:
+    """Điểm hướng dẫn ở đuôi 5%. Không cần phiên hiếm theo trung bình sáu nhóm."""
+    if not _behaviour_ready(facts):
         return "unknown"
-    if rare != "present":
-        return "absent"
-    top = facts.behaviour_top_group or ""
-    if top in {"dictation", "app_switch"}:
-        return "present"
-    if top == "review" and facts.behaviour_review_direction == "fast":
-        return "present"
-    if not top:
+    if facts.behaviour_guided_p is None:
         return "unknown"
-    return "absent"
+    return "present" if facts.behaviour_guided_p <= float(threshold("behaviour_guided_p_at_most")) else "absent"
 
 
 def _device(state: str | None) -> tuple[str, str, str]:
@@ -786,7 +785,12 @@ def _reasons(facts: Facts, rules: list[dict], signals: dict[str, Signal], funds:
             if not signals.get(name) or signals[name].status != "present":
                 continue
             code = contract_code(name, facts.call_state)
-            if name in {"behaviour_rare", "behaviour_guided"}:
+            if name == "behaviour_guided":
+                if BASELINE_RANK.get(baseline, 0) < BASELINE_RANK["medium"]:
+                    continue
+                add(code, _behaviour_phrase(facts, facts.behaviour_guided_group))
+                continue
+            if name == "behaviour_rare":
                 if BASELINE_RANK.get(baseline, 0) < BASELINE_RANK["medium"]:
                     continue
                 phrase = ""
@@ -802,8 +806,8 @@ def _reasons(facts: Facts, rules: list[dict], signals: dict[str, Signal], funds:
     return rows
 
 
-def _behaviour_phrase(facts: Facts) -> str:
-    top = facts.behaviour_top_group or ""
+def _behaviour_phrase(facts: Facts, group: str | None = None) -> str:
+    top = facts.behaviour_top_group or "" if group is None else group
     if top == "dictation":
         return "Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho."
     if top == "review" and facts.behaviour_review_direction == "fast":

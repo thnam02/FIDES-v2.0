@@ -68,9 +68,10 @@ def test_capture_and_guided_are_group_b_only():
             call_state="active",
             new_payee=True,
             task_type="new_typed",
-            behaviour_p_rarity=0.01,
+            behaviour_p_rarity=0.5,
+            behaviour_guided_p=0.01,
             same_task_sessions=8,
-            behaviour_top_group="dictation",
+            behaviour_guided_group="dictation",
         )
     )
     assert guided.level == 2

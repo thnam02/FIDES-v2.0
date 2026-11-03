@@ -95,6 +95,9 @@ class View:
     review_direction: str
     delay_us: int
     max_sessions: int
+    guided_score: float = 0.0
+    guided_p: float | None = None
+    guided_group: str = ""
 
 
 @dataclass
@@ -105,6 +108,8 @@ class Score:
     reasons: list[str] = field(default_factory=list)
     top_group: str = ""
     review_direction: str = ""
+    guided_score: float = 0.0
+    guided_group: str = ""
 
 
 def _policy():
@@ -326,6 +331,7 @@ def score_features(
         if len(reasons) == 2:
             break
     top = ranked[0] if ranked and groups[ranked[0]] > 0 else ""
+    guided_score, guided_group = _guided_pair(groups, review_direction)
     return Score(
         score=session,
         groups=groups,
@@ -333,7 +339,24 @@ def score_features(
         reasons=reasons,
         top_group=top,
         review_direction=review_direction,
+        guided_score=guided_score,
+        guided_group=guided_group,
     )
+
+
+def _guided_pair(groups: dict, review_direction: str) -> tuple[float, str]:
+    """Điểm hướng dẫn là nhóm cao nhất trong đọc số, rời app, và xác nhận nhanh."""
+    best_score = 0.0
+    best_name = ""
+    for name in ("dictation", "app_switch", "review"):
+        if name == "review" and review_direction != "fast":
+            continue
+        value = float(groups.get(name) or 0.0)
+        if name not in groups or value <= best_score:
+            continue
+        best_score = value
+        best_name = name
+    return best_score, best_name
 
 
 def empirical_p(score: float, reference: list[float]) -> float | None:
@@ -396,6 +419,7 @@ def assess(client, user: str, task_type: str | None, features, decided: datetime
     scored = score_features(parsed, history, population, cfg["directions"], cfg["prior"], cfg["floor"], task_type)
     quality = quality_name(len(rows), cfg["medium"], cfg["high"])
     rarity = empirical_p(scored.score, list(reference.get("scores") or []))
+    guided_p = empirical_p(scored.guided_score, list(reference.get("guided_scores") or []))
     delay_us = 0 if experiment else int(cfg["delay_hours"] * 3600 * 1_000_000)
     return View(
         user=user,
@@ -415,6 +439,9 @@ def assess(client, user: str, task_type: str | None, features, decided: datetime
         review_direction=scored.review_direction,
         delay_us=delay_us,
         max_sessions=cfg["max_sessions"],
+        guided_score=scored.guided_score,
+        guided_p=guided_p,
+        guided_group=scored.guided_group,
     )
 
 
@@ -547,6 +574,7 @@ def write_synthetic_references(root: Path | None = None, seed: int = 42, users: 
                 pool_rows.append(draw_session(rng, task, person))
         population = population_stats(pool_rows)
         scores = []
+        guided_scores = []
         baseline_n = []
         for _user in range(users):
             person = draw_person(rng)
@@ -555,6 +583,7 @@ def write_synthetic_references(root: Path | None = None, seed: int = 42, users: 
                 features = draw_session(rng, task, person)
                 scored = score_features(features, history, population, cfg["directions"], cfg["prior"], cfg["floor"], task)
                 scores.append(scored.score)
+                guided_scores.append(scored.guided_score)
                 baseline_n.append(len(history))
                 history.append(features)
                 if len(history) > cfg["max_sessions"]:
@@ -566,6 +595,7 @@ def write_synthetic_references(root: Path | None = None, seed: int = 42, users: 
             "seed": seed,
             "population": population,
             "scores": scores,
+            "guided_scores": guided_scores,
             "baseline_n": baseline_n,
         }
         (target / f"{task}.json").write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")

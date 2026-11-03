@@ -27,6 +27,10 @@ thresholds:
     value: 0.05
     provenance: chosen on simulated data
     demo: true
+  behaviour_guided_p_at_most:
+    value: 0.05
+    provenance: chosen on simulated data
+    demo: true
   behaviour_baseline_medium_sessions:
     value: 3
     provenance: chosen on simulated data
