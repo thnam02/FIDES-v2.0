@@ -130,12 +130,48 @@ def _known_payee(payee: str) -> bool:
     return bool(payee) and payee != "-"
 
 
+HOLD_PREFIX = "f:habithold:"
+
+
+def hold_field(ts_us: int, payee: str, amount: int) -> str:
+    return f"{int(ts_us)}|{payee}|{int(amount)}"
+
+
+def mark_hold(client, sender: str, ts_us: int, payee: str, amount: int, decision_id: str) -> None:
+    """Mức >= 1 hoặc đang trong episode. Mặc định chưa xác nhận, không ghi đè cờ đã xác nhận."""
+    if client is None or not sender or not decision_id:
+        return
+    field = hold_field(ts_us, payee, amount)
+    key = f"{HOLD_PREFIX}{sender}"
+    if str(client.hget(key, field) or "") == "1":
+        client.set(f"{HOLD_PREFIX}id:{decision_id}", f"{sender}\t{field}")
+        return
+    client.hset(key, field, "0")
+    client.set(f"{HOLD_PREFIX}id:{decision_id}", f"{sender}\t{field}")
+
+
+def confirm_hold(client, decision_id: str) -> None:
+    if client is None or not decision_id:
+        return
+    packed = client.get(f"{HOLD_PREFIX}id:{decision_id}")
+    if not packed or "\t" not in str(packed):
+        return
+    sender, field = str(packed).split("\t", 1)
+    if sender and field:
+        client.hset(f"{HOLD_PREFIX}{sender}", field, "1")
+
+
+def _blocked(holds: dict) -> set[str]:
+    return {str(field) for field, value in (holds or {}).items() if str(value) != "1"}
+
+
 @dataclass
 class Transfer:
     ts_us: int
     payee: str
     amount: int
     balance: int
+    in_baseline: bool = True
 
 
 @dataclass
@@ -143,6 +179,7 @@ class Raw:
     n: int
     n90: int
     window: str
+    n_base: int
     personal_median: float
     personal_max: float
     week_sum: float
@@ -223,6 +260,7 @@ class Ledger:
         self.payee: list[str] = []
         self.amount: list[int] = []
         self.balance: list[int] = []
+        self.in_base: list[bool] = []
         self.hour: list[int] = []
         self.weekday: list[int] = []
         self.seen: set[str] = set()
@@ -257,6 +295,7 @@ class Ledger:
         self.payee.append(payee)
         self.amount.append(amount)
         self.balance.append(int(item.balance))
+        self.in_base.append(bool(item.in_baseline))
         self.hour.append(hour)
         self.weekday.append(weekday)
         self.days.add(day_id(stamp))
@@ -269,9 +308,11 @@ class Ledger:
         window = "90d" if n90 >= WINDOW_MIN else "12m"
         start = cut90 if window == "90d" else cut365
         left = bisect.bisect_left(self.ts, start)
-        amounts = [float(item) for item in self.amount[left:]]
-        n = len(amounts)
-        ratios = [self.amount[index] / self.balance[index] for index in range(left, len(self.ts)) if self.balance[index] > 0]
+        base = [index for index in range(left, len(self.ts)) if self.in_base[index]]
+        amounts = [float(self.amount[index]) for index in base]
+        n = len(self.ts) - left
+        n_base = len(base)
+        ratios = [self.amount[index] / self.balance[index] for index in base if self.balance[index] > 0]
         hour, weekday = hour_weekday(stamp)
         hour_n = sum(1 for item in self.hour[left:] if item == hour)
         weekday_n = sum(1 for item in self.weekday[left:] if item == weekday)
@@ -282,13 +323,15 @@ class Ledger:
         day_left = bisect.bisect_left(self.new_ts, stamp - DAY_US)
         unseen_24h = len(set(self.new_payee[day_left:]))
         max_left = bisect.bisect_left(self.ts, cut365)
-        max_12m = max(self.amount[max_left:]) if max_left < len(self.amount) else 0
+        year = [self.amount[index] for index in range(max_left, len(self.ts)) if self.in_base[index]]
+        max_12m = max(year) if year else 0
         ratio = float(amount) / float(balance) if balance and balance > 0 else None
-        past_weeks = self.week_at[left:]
+        past_weeks = [self.week_at[index] for index in base]
         return Raw(
             n=n,
             n90=n90,
             window=window,
+            n_base=n_base,
             personal_median=_median(amounts),
             personal_max=max(amounts) if amounts else float("nan"),
             week_sum=self._week_sum(stamp, str(payee or ""), int(amount)),
@@ -309,9 +352,10 @@ class Ledger:
 
 def features_from(raw: Raw, amount: int, population: Population) -> dict[str, float]:
     prior = float(population.prior)
-    median_amount = shrink(raw.n, raw.personal_median, population.median_amount, prior)
-    max_amount = shrink(raw.n, raw.personal_max, population.max_amount_ref, prior)
-    typical_week = shrink(raw.n, raw.week_median, population.typical_7d, prior)
+    base_n = raw.n_base
+    median_amount = shrink(base_n, raw.personal_median, population.median_amount, prior)
+    max_amount = shrink(base_n, raw.personal_max, population.max_amount_ref, prior)
+    typical_week = shrink(base_n, raw.week_median, population.typical_7d, prior)
     hour_p = population.hour_p[raw.hour] if 0 <= raw.hour < len(population.hour_p) else 1.0 / 24.0
     weekday_p = population.weekday_p[raw.weekday] if 0 <= raw.weekday < len(population.weekday_p) else 1.0 / 7.0
     hour_freq = (raw.hour_n + prior * hour_p) / (raw.n + prior)
@@ -527,6 +571,40 @@ def assess(history: list[Transfer], ts_us: int, payee: str, amount: int, balance
     return _finish(raw, features, int(amount), population, score, model.top_feature(features, contrib), "isolation_forest")
 
 
+def inspect_row(history: list[Transfer], ts_us: int, payee: str, amount: int, balance: int, population: Population, model: HabitModel | None = None) -> dict:
+    """Đủ để xem vì sao một lệnh không vượt ngưỡng. TreeSHAP vẫn chạy khi có mô hình."""
+    result = assess(history, ts_us, payee, amount, balance, population, model)
+    ledger = Ledger()
+    for item in sorted(history, key=lambda row: int(row.ts_us)):
+        if int(item.ts_us) >= int(ts_us) or int(item.amount) <= 0:
+            continue
+        ledger.add(item)
+    raw = ledger.snapshot(int(ts_us), str(payee or ""), int(amount), int(balance))
+    features = features_from(raw, int(amount), population)
+    typical = shrink(raw.n_base, raw.week_median, population.typical_7d, population.prior)
+    top = result.top_feature
+    group = result.top_group
+    if model is not None and quality_of(raw.n) != "low":
+        _score, contrib = model.anomaly(features)
+        top = model.top_feature(features, contrib)
+        group = GROUPS.get(top or "", None)
+    return {
+        "features": features,
+        "personal_max": raw.personal_max,
+        "week_sum": raw.week_sum,
+        "week_median": raw.week_median,
+        "typical_week": typical,
+        "n": raw.n,
+        "n_base": raw.n_base,
+        "score": result.score,
+        "top_feature": top,
+        "top_group": group,
+        "rare": result.rare,
+        "money_rare": result.money_rare,
+        "quality": result.quality,
+    }
+
+
 def _parse_member(member: str) -> Transfer | None:
     parts = str(member).split("|")
     if len(parts) < 8 or parts[5] != "1":
@@ -547,12 +625,17 @@ def read_redis(client, sender_hash: str, ts_us: int) -> list[Transfer]:
     ordered = sorted(accounts)
     for account in ordered:
         pipe.zrangebyscore(f"f:out:{account}", start, f"({int(ts_us)}")
+        pipe.hgetall(f"{HOLD_PREFIX}{account}")
     found = []
-    for rows in pipe.execute():
-        for member in rows or []:
+    fetched = pipe.execute()
+    for index in range(0, len(fetched), 2):
+        blocked = _blocked(fetched[index + 1])
+        for member in fetched[index] or []:
             item = _parse_member(str(member))
-            if item is not None and item.amount > 0:
-                found.append(item)
+            if item is None or item.amount <= 0:
+                continue
+            item.in_baseline = hold_field(item.ts_us, item.payee, item.amount) not in blocked
+            found.append(item)
     found.sort(key=lambda item: item.ts_us)
     return found
 

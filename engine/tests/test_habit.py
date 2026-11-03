@@ -18,10 +18,13 @@ from engine.features.habit import (
     MODEL_VERSION,
     WEEK_FEATURE,
     HabitModel,
+    Ledger,
     Population,
     Transfer,
     assess,
+    confirm_hold,
     hour_weekday,
+    mark_hold,
 )
 from engine.policy.v24 import Facts, evaluate, load_policy
 
@@ -153,6 +156,58 @@ def test_timing_habit_with_a_call_stays_at_level_1():
     assert "R_CALL_NEWPAYEE" in out.rules_fired
     assert "R_CALL_HABIT_NEWPAYEE" not in out.rules_fired
     assert "Bạn hiếm khi chuyển tiền vào giờ này." in out.reasons_vi
+
+
+class _Hash:
+    def __init__(self):
+        self.hashes: dict[str, dict[str, str]] = {}
+        self.values: dict[str, str] = {}
+
+    def hget(self, key, field):
+        return self.hashes.get(key, {}).get(field)
+
+    def hset(self, key, field, value):
+        self.hashes.setdefault(key, {})[field] = value
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def set(self, key, value):
+        self.values[key] = value
+
+
+def test_unconfirmed_alert_stays_out_of_the_baseline_but_inside_the_week_sum():
+    clean = Transfer(_us(NOW - timedelta(days=10)), "old", 2_000_000, 80_000_000, True)
+    flagged = Transfer(_us(NOW - timedelta(days=1)), "scam-1", 20_000_000, 80_000_000, False)
+    ledger = Ledger()
+    ledger.add(clean)
+    ledger.add(flagged)
+    raw = ledger.snapshot(_us(NOW), "scam-2", 20_000_000, 80_000_000)
+    assert raw.n == 2
+    assert raw.n_base == 1
+    assert raw.personal_max == 2_000_000
+    assert raw.personal_median == 2_000_000
+    assert raw.max_12m == 2_000_000
+    assert raw.week_sum == 40_000_000
+    assert raw.week_median == 2_000_000
+    assert raw.ratios == [2_000_000 / 80_000_000]
+    confirmed = Transfer(_us(NOW - timedelta(days=1)), "scam-1", 20_000_000, 80_000_000, True)
+    again = Ledger()
+    again.add(clean)
+    again.add(confirmed)
+    back = again.snapshot(_us(NOW), "scam-2", 20_000_000, 80_000_000)
+    assert back.personal_max == 20_000_000
+    assert back.n_base == 2
+
+
+def test_confirming_a_hold_puts_the_transfer_back():
+    client = _Hash()
+    mark_hold(client, "sender", 10, "payee", 20_000_000, "dec-1")
+    assert client.hget("f:habithold:sender", "10|payee|20000000") == "0"
+    confirm_hold(client, "dec-1")
+    assert client.hget("f:habithold:sender", "10|payee|20000000") == "1"
+    mark_hold(client, "sender", 10, "payee", 20_000_000, "dec-1")
+    assert client.hget("f:habithold:sender", "10|payee|20000000") == "1"
 
 
 def test_hour_bucket_uses_vietnam_time():

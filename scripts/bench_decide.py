@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -70,12 +70,29 @@ def _drop_audit() -> None:
             conn.commit()
 
 
+def _seed_history(client, when: datetime) -> None:
+    """20 lệnh đi bình thường. Lệnh đo sẽ lớn hơn mức lớn nhất, để rừng và TreeSHAP đều chạy."""
+    pipe = client.pipeline(transaction=False)
+    for index in range(N):
+        sender = f"bench_{index:04d}"
+        for step in range(20):
+            stamp = when - timedelta(days=60 - step)
+            ts = int(stamp.timestamp() * 1_000_000)
+            member = f"{ts}|{step}|bench_known|{100_000}|{20_000_000}|1|bench_old|transfer"
+            pipe.zadd(f"f:out:{sender}", {member: ts})
+    pipe.execute()
+
+
 def main() -> None:
     appmod._hash_ok = _hash_ok
     client = redis.Redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
     _cleanup(client)
     _drop_audit()
-    when = datetime.now(ICT).isoformat(timespec="microseconds")
+    now = datetime.now(ICT)
+    when = now.isoformat(timespec="microseconds")
+    history = os.environ.get("BENCH_HISTORY") == "1"
+    if history:
+        _seed_history(client, now)
     jobs = []
     for index in range(N):
         jobs.append(
@@ -84,12 +101,16 @@ def main() -> None:
                 "profile": "advanced",
                 "sender_hash": f"bench_{index:04d}",
                 "payee_hash": f"bench_payee_{index:04d}",
-                "amount": 1_000_000,
+                "amount": 20_000_000 if history else 1_000_000,
                 "ts": when,
                 "session_id": f"bench_sess_{index:04d}",
                 "device": {},
             }
         )
+        if history:
+            jobs[-1]["add_method"] = "typed"
+            jobs[-1]["balance"] = 50_000_000
+            jobs[-1]["task_type"] = "new_typed"
         if os.environ.get("BENCH_BEHAVIOUR") == "1":
             jobs[-1]["task_type"] = "saved_payee"
             jobs[-1]["behaviour_features"] = {
@@ -107,6 +128,10 @@ def main() -> None:
             }
     appmod.STORE = OnlineStore(flush=False)
     appmod.MODEL = Scorer.load()
+    if history:
+        from engine.features.habit import FEATURES, cached_model
+
+        cached_model().anomaly({name: 1.0 for name in FEATURES})
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -127,6 +152,14 @@ def main() -> None:
             elapsed = time.perf_counter() - started
             if status != 200 or payload.get("level") not in (0, 1, 2, 3):
                 bad += 1
+            if history and not times:
+                print(
+                    "history sample",
+                    payload.get("level"),
+                    payload.get("rules_fired"),
+                    [item for item in payload.get("signals_present") or [] if str(item).startswith("habit")],
+                    flush=True,
+                )
             times.append(elapsed)
     finally:
         server.shutdown()

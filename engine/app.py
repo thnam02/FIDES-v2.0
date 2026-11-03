@@ -395,6 +395,10 @@ def decide(body: dict) -> tuple[int, dict]:
             return 409, {"detail": "decision_id đã có"}
     if behaviour is not None:
         remember(STORE.redis, behaviour, outcome.level)
+    if outcome.level >= 1 or outcome.episode_id:
+        from engine.features.habit import mark_hold
+
+        mark_hold(STORE.redis, str(body["sender_hash"]), to_us(decided), str(body["payee_hash"]), int(body["amount"]), str(body["decision_id"]))
     return 200, payload
 
 
@@ -427,6 +431,10 @@ def respond(body: dict) -> tuple[int, dict]:
                 "body": body,
             },
         )
+    if STORE is not None and updated["funds_status"] == "released" and (body.get("proceed") or body.get("guardian_confirm")):
+        from engine.features.habit import confirm_hold
+
+        confirm_hold(STORE.redis, str(body["decision_id"]))
     return 200, {
         "decision_id": body["decision_id"],
         "level": updated["level"],
@@ -547,6 +555,10 @@ class Handler(BaseHTTPRequestHandler):
             if not logged:
                 _bad(self, 404, "không có quyết định")
                 return
+            if choice == "continue" and STORE is not None:
+                from engine.features.habit import confirm_hold
+
+                confirm_hold(STORE.redis, decision_id)
             _json(self, 200, {"decision_id": decision_id, "choice": choice, "logged": True})
             return
         if path not in {"/events", "/decide", "/respond"}:
