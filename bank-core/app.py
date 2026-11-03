@@ -27,6 +27,8 @@ from enforce import (
     unscored_decision,
 )
 from engine.common.hashing import account_hash, require_key
+from engine.policy.inflows import classify_inflows, recent_outflows
+from engine.policy.v24 import load_policy
 from load import CUT, OBSERVED, PERSONAS, SCHEMA, load
 from notice import notice_allowed, notice_limits
 
@@ -489,6 +491,7 @@ class TransferIn(BaseModel):
     ] | None = None
     experiment: ExperimentIn | None = None
     recent_funds_events: list[dict] | None = None
+    payee_holder_name: str | None = None
 
 
 class ExperimentSessionIn(BaseModel):
@@ -1067,16 +1070,52 @@ def _next_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:16]}"
 
 
+def _customer_ledger(conn, account: str) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT e.ts, e.amount, e.direction, e.tx_type, e.channel, e.counterparty_id,
+               COALESCE(cp.holder_name, '') AS counterparty_name,
+               cp.customer_id AS counterparty_customer,
+               a.customer_id
+        FROM bank.entries e
+        JOIN bank.accounts a ON a.id = e.account_id
+        LEFT JOIN bank.accounts cp ON cp.id = e.counterparty_id
+        WHERE a.customer_id = (SELECT customer_id FROM bank.accounts WHERE id = %s)
+          AND e.status <> 'cancelled'
+        """,
+        (account,),
+    ).fetchall()
+    found = []
+    for row in rows:
+        stamp = row["ts"]
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=ICT)
+        found.append(
+            {
+                "ts": stamp,
+                "amount": int(row["amount"]),
+                "direction": row["direction"],
+                "tx_type": row["tx_type"],
+                "channel": row["channel"],
+                "counterparty_id": row["counterparty_id"] or "",
+                "counterparty_name": row["counterparty_name"] or "",
+                "counterparty_customer": row["counterparty_customer"],
+                "customer_id": row["customer_id"],
+            }
+        )
+    return found
+
+
 def ledger_funds(conn, account: str, now: datetime) -> list[dict]:
-    """Sổ của bank-core. App không biết các lệnh này."""
+    """Sổ của bank-core. App không biết các lệnh này. Gồm sản phẩm của ngân hàng và tiền vào bất thường."""
     start = now - timedelta(hours=FUNDS_HOURS)
     rows = conn.execute(
         """
-        SELECT type, ts, channel FROM (
-            SELECT kind AS type, ts, channel FROM bank.products
+        SELECT type, ts, channel, amount FROM (
+            SELECT kind AS type, ts, channel, amount FROM bank.products
             WHERE account_id = %s AND kind = ANY(%s) AND ts >= %s AND ts <= %s
             UNION ALL
-            SELECT tx_type AS type, ts, channel FROM bank.entries
+            SELECT tx_type AS type, ts, channel, amount FROM bank.entries
             WHERE account_id = %s AND tx_type = ANY(%s) AND direction = 'in' AND ts >= %s AND ts <= %s
         ) events
         ORDER BY ts
@@ -1094,8 +1133,14 @@ def ledger_funds(conn, account: str, now: datetime) -> list[dict]:
         key = (kind, at)
         current = events.get(key)
         if current is None or (current["channel"] == "unknown" and channel != "unknown"):
-            events[key] = {"type": kind, "at": at, "channel": channel}
-    return list(events.values())
+            events[key] = {"type": kind, "at": at, "channel": channel, "amount": int(row["amount"] or 0)}
+    ledger = _customer_ledger(conn, account)
+    policy = load_policy()
+    return list(events.values()) + classify_inflows(ledger, now, policy)
+
+
+def ledger_outflows(conn, account: str, now: datetime) -> list[dict]:
+    return recent_outflows(_customer_ledger(conn, account), now, load_policy())
 
 
 def verified_mule(account: str) -> list[dict]:
@@ -1170,6 +1215,16 @@ def transfer(
             if sent is not None:
                 request[field] = sent
         request["recent_funds_events"] = ledger_funds(conn, body.from_account, now)
+        request["recent_outflows"] = ledger_outflows(conn, body.from_account, now)
+        payee = conn.execute(
+            "SELECT holder_name, account_type FROM bank.accounts WHERE id = %s",
+            (body.to_account,),
+        ).fetchone()
+        if payee is not None:
+            request["payee_account_type"] = payee["account_type"]
+            request["payee_holder_name"] = payee["holder_name"]
+        elif body.payee_holder_name:
+            request["payee_holder_name"] = body.payee_holder_name
         request["guardian_consent"] = _guardian_consented(conn, body.from_account)
         mule = verified_mule(body.to_account)
         if mule:

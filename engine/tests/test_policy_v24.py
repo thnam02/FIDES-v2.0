@@ -73,14 +73,27 @@ def test_policy_file_records_provenance():
     policy = load_policy()
     assert policy["version"] == "2.5.0"
     habit = {"habit_score_above", "habit_profile_above"}
+    inflows = {
+        "inflow_multiple",
+        "inflow_min_vnd",
+        "inflow_passthrough_ratio",
+        "inflow_history_days",
+        "recurring_amount_within",
+        "recurring_month_days",
+        "recurring_gap_slack_days",
+    }
     for name, item in policy["thresholds"].items():
         if name in habit:
             assert "98th percentile" in item["provenance"], name
+            continue
+        if name in inflows:
+            assert item["provenance"].startswith("v2.5 funds inflows"), name
             continue
         assert item["provenance"] == "chosen on simulated data", name
     assert policy["thresholds"]["model_p_high"]["value"] == 0.8125
     groups = {rule["id"]: rule.get("group") for rule in policy["rules"] if int(rule["level"]) >= 2}
     assert groups["R_CALL_FUNDS_NEWPAYEE"] == "A"
+    assert groups["R_FUNDS_PASSTHROUGH"] == "A"
     assert groups["R_CALL_HABIT_NEWPAYEE"] == "A"
     assert groups["R_BEHAVIOUR_GUIDED"] == "B"
     assert groups["R_CAPTURE"] == "B"
@@ -296,7 +309,7 @@ def test_merchant_with_many_senders_and_no_passthrough_is_not_unusual():
     assert "R_RECIPIENT_UNUSUAL" in young.rules_fired
 
 
-def test_recipient_only_holds_the_same_payee_and_not_the_next():
+def test_every_level_2_opens_a_day_long_episode_for_the_next_new_payee():
     state = MemoryState()
     sender = "7" * 64
     first_payee = "8" * 64
@@ -359,8 +372,9 @@ def test_recipient_only_holds_the_same_payee_and_not_the_next():
         ),
         state,
     )
-    assert other.level < 2
-    assert other.episode_id == ""
+    assert other.level == 2
+    assert other.episode_id == opened.episode_id
+    assert other.episode_id != ""
 
 
 def test_simo_unknown_history_is_not_treated_as_absent():
