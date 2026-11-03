@@ -1,6 +1,26 @@
 /** Màn mức 2 và tờ mức 1. Câu chữ giữ đúng bản đã chốt. */
 
 export const LEVEL1_HEADLINE = "Hãy kiểm tra lại trước khi chuyển."
+export const CALL_NEWPAYEE_HEADLINE = "Bạn đang nghe điện thoại và chuyển cho người nhận mới. Nếu có ai đang hướng dẫn bạn chuyển tiền, hãy dừng lại."
+export const HABIT_NEWPAYEE_HEADLINE = "Số tiền này lớn hơn nhiều so với mức bạn thường chuyển. Hãy chắc chắn bạn biết người nhận."
+export const UNSCORED_HEADLINE = "Không kiểm tra được giao dịch lúc này. Hãy chắc chắn bạn biết người nhận trước khi chuyển."
+export const FRAUD_CONFIRMED = "Tổng đài đã xác nhận đây là lừa đảo. Giao dịch đã được huỷ."
+export const GUARDIAN_DECLINED = "Người giám hộ đã từ chối giao dịch này. Hãy gọi lại cho người thân của bạn."
+
+const LEVEL1_BY_RULE: Record<string, string> = {
+  R_CALL_NEWPAYEE: CALL_NEWPAYEE_HEADLINE,
+  R_HABIT_NEWPAYEE: HABIT_NEWPAYEE_HEADLINE,
+}
+
+/** Câu của máy chủ thắng. Không có thì lấy luật mức 1 đầu tiên có câu riêng. */
+export function level1Headline(rules: string[] | undefined, server: string | null | undefined): string {
+  if (server) return server
+  for (const id of rules ?? []) {
+    const text = LEVEL1_BY_RULE[id]
+    if (text) return text
+  }
+  return LEVEL1_HEADLINE
+}
 export const HANGUP_NOTE = "Hãy cúp máy trước. Công an, ngân hàng và cơ quan nhà nước không bao giờ yêu cầu chuyển tiền qua điện thoại."
 export const STRENGTHENED_NOTE = "Giao dịch có nhiều dấu hiệu lừa đảo. Gọi tổng đài để xác nhận ngay, hoặc nhờ người giám hộ xác nhận."
 export const FAKE_RELATIVE_NOTE = "Nếu người thân nhắn tin hỏi mượn tiền, hãy gọi lại cho họ bằng số bạn đã lưu trước khi chuyển."

@@ -18,7 +18,7 @@ import { addMethod } from "../addMethod"
 import { deviceState } from "../deviceState"
 import { level1AppStateCancels, level1ConfirmRejected, level1OnLeave } from "../level1Leave"
 import { payeeGate } from "../payeeLookup"
-import { CANCEL_BUTTON, continueView, FAKE_RELATIVE_NOTE, HOTLINE_BUTTON, LEVEL1_HEADLINE, PAUSE_BUTTON, showFakeRelative } from "../intervention"
+import { CANCEL_BUTTON, continueView, FAKE_RELATIVE_NOTE, HOTLINE_BUTTON, level1Headline, PAUSE_BUTTON, showFakeRelative } from "../intervention"
 import { resultRoute } from "../routeDecision"
 import { DEMO, useBank, type EntryDetail } from "../store"
 import { Button, Card, colors, Header, Screen, useType } from "../ui/parts"
@@ -592,14 +592,14 @@ export function ConfirmScreen() {
                   reasons: result.decision.reasons ?? [],
                 }))
                 if (card && entryDetail) card.entry_detail = entryDetail
-                const engineLevel = result.decision.level
+                const engineLevel = result.decision.unscored && result.decision.level == null ? null : result.decision.level
                 const reasonsVi = (card?.reasons_vi ?? result.decision.reasons.map((reason) => reason.text) ?? []).map(reasonLine).filter(Boolean)
                 if (result.status === "awaiting_confirmation") {
                   remindedAt.current = Date.now()
                   setReminder({
                     transferId: result.transfer_id,
                     reasons: reasonsVi,
-                    headline: result.decision.headline || LEVEL1_HEADLINE,
+                    headline: level1Headline(result.decision.rules_fired, result.decision.headline),
                     fakeRelative: showFakeRelative((result.decision.signals_present ?? []).includes("new_payee"), purpose),
                     payeeName: resolved || toName,
                   })
@@ -632,6 +632,7 @@ export function ConfirmScreen() {
                   continueRequiresHangup: Boolean(result.decision.continue_requires_hangup),
                   lockUntil: result.decision.lock_until ?? null,
                   hotlineUnlocked: false,
+                  demoNotice: null,
                 })
                 router.replace("/(main)/transfer/result")
               },
@@ -725,6 +726,16 @@ export function ResultScreen() {
           ))}
           <Text style={{ color: "#94A3B8", fontSize: type.small }}>{copy.level3Mock}</Text>
           <EntryDetailLine />
+          <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} />
+        </View>
+      </Screen>
+    )
+  }
+  if (outcome.demoNotice) {
+    return (
+      <Screen call>
+        <View style={{ gap: 16 }}>
+          <Text testID="demo-story-notice" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{outcome.demoNotice}</Text>
           <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} />
         </View>
       </Screen>

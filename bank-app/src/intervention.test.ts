@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { CONTINUE_BUTTON, continueView, FAKE_RELATIVE_NOTE, level2Buttons, showFakeRelative, STRENGTHENED_NOTE, HANGUP_NOTE } from "./intervention.ts"
+import { CALL_NEWPAYEE_HEADLINE, CONTINUE_BUTTON, continueView, FAKE_RELATIVE_NOTE, HABIT_NEWPAYEE_HEADLINE, HANGUP_NOTE, level1Headline, level2Buttons, showFakeRelative, STRENGTHENED_NOTE, UNSCORED_HEADLINE } from "./intervention.ts"
 
 const lock = "2026-09-21T10:30:00+07:00"
 const before = Date.parse("2026-09-21T10:00:00+07:00")
@@ -68,6 +68,13 @@ test("strengthened shows the countdown until the lock or a hotline unlock", () =
     unlocked: false,
   })
   assert.equal(expired.enabled, true)
+})
+
+test("level 1 uses the rule headline and the unscored sentence is separate", () => {
+  assert.equal(level1Headline(["R_CALL_NEWPAYEE"], ""), CALL_NEWPAYEE_HEADLINE)
+  assert.equal(level1Headline(["R_HABIT_NEWPAYEE", "R_CALL_NEWPAYEE"], ""), HABIT_NEWPAYEE_HEADLINE)
+  assert.equal(level1Headline(["R_SIMO_ALONE"], ""), "Hãy kiểm tra lại trước khi chuyển.")
+  assert.equal(level1Headline(["R_CALL_NEWPAYEE"], UNSCORED_HEADLINE), UNSCORED_HEADLINE)
 })
 
 test("a new payee sent to family or friends shows the fake-relative line", () => {

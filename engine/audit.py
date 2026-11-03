@@ -141,6 +141,8 @@ def reject_choice(choice: object, response_ms: object) -> bool:
         "proceed_rejected_lock",
         "hotline",
         "guardian_confirm",
+        "hotline_fraud",
+        "guardian_decline",
     }:
         return True
     if isinstance(response_ms, bool) or not isinstance(response_ms, int):

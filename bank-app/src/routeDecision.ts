@@ -7,7 +7,8 @@ const RANK: Record<ResultRoute, number> = {
   security: 3,
 }
 
-function routeForLevel(level: number): ResultRoute {
+function routeForLevel(level: number | null): ResultRoute {
+  if (level == null) return "success"
   if (level >= 3) return "security"
   if (level === 2) return "three_button"
   if (level === 1) return "success_reminder"
@@ -29,7 +30,7 @@ export function confirmOutcome(level: number): "settle" | "reminder" | "hold" {
 }
 
 /** Màn sau khi xác nhận. Mức số và kiểu can thiệp cùng trỏ một màn; mức cao hơn thắng. */
-export function resultRoute(level: number, intervention?: string | null): ResultRoute {
+export function resultRoute(level: number | null, intervention?: string | null): ResultRoute {
   const fromLevel = routeForLevel(level)
   const fromIntervention = routeForIntervention(intervention)
   return RANK[fromIntervention] > RANK[fromLevel] ? fromIntervention : fromLevel

@@ -10,7 +10,7 @@ REDIS_HOST=${REDIS_HOST:-127.0.0.1}
 REDIS_MODE=${REDIS_MODE:-host}
 API_KEY=${FIDES_API_KEY:-fides-demo-key}
 FIDES_HMAC_KEY=${FIDES_HMAC_KEY:-fides-demo-hmac}
-export REDIS_URL REDIS_PORT REDIS_HOST FIDES_HMAC_KEY
+export DATABASE_URL REDIS_URL REDIS_PORT REDIS_HOST FIDES_HMAC_KEY ENGINE API_KEY
 DB=${REDIS_URL##*/}
 
 curl -sf -X POST "$BANK/clock/pause" >/dev/null
@@ -321,4 +321,59 @@ PY
 # Purge ở trên xoá mọi beh:v24. Chỉ Trương, task new_typed, được gieo lại cho cảnh C.
 python3 "$ROOT/scripts/seed_demo_baseline.py"
 python3 "$ROOT/scripts/seed_demo_baseline.py" --check
+# Engine phải sống và đã chấm một lần, để lệnh demo đầu không rơi vào hạn 300 ms.
+i=0
+while true; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$ENGINE/health" || true)
+  if [ "$code" = "200" ]; then
+    break
+  fi
+  i=$((i + 1))
+  if [ "$i" -gt 60 ]; then
+    echo "engine health $code" >&2
+    exit 1
+  fi
+  sleep 0.5
+done
+ENGINE="$ENGINE" API_KEY="$API_KEY" FIDES_ROOT="$ROOT" python3 - <<'PY'
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+sys.path[:0] = [os.environ["FIDES_ROOT"]]
+from engine.common.hashing import account_hash, reset_key_cache
+
+reset_key_cache()
+body = {
+    "decision_id": "warmup-demo-reset",
+    "profile": "advanced",
+    "sender_hash": account_hash("A0031239"),
+    "payee_hash": account_hash("warmup-payee"),
+    "amount": 1,
+    "ts": "2026-09-21T10:00:00+07:00",
+    "session_id": "warmup-demo-reset",
+    "device": {"state": "none"},
+    "add_method": "typed",
+    "task_type": "saved_payee",
+}
+data = json.dumps(body).encode()
+request = urllib.request.Request(
+    os.environ["ENGINE"].rstrip("/") + "/decide",
+    data=data,
+    headers={"Content-Type": "application/json", "X-API-Key": os.environ["API_KEY"]},
+)
+try:
+    with urllib.request.urlopen(request, timeout=60) as response:
+        status = response.status
+        payload = response.read().decode()
+except urllib.error.HTTPError as exc:
+    sys.stderr.write(exc.read().decode()[:500] + "\n")
+    sys.exit(1)
+if status != 200:
+    sys.stderr.write(f"warmup decide {status} {payload[:500]}\n")
+    sys.exit(1)
+print("warmup decide ok")
+PY
 echo ready

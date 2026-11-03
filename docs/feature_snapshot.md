@@ -15,4 +15,4 @@ Mặc định nạp mọi sự kiện observed trước `2026-09-21T10:00:00+07:
 
 Đừng dùng `scripts/snapshot_features.py --rebuild` cho sổ này. Lệnh đó trim khoản cũ hơn 7 ngày trước mốc, nên mất cửa sổ 90 ngày và 12 tháng của thói quen chuyển tiền.
 
-`--until` khác `2026-09-20T00:00:00+07:00` thì `fides/tests/test_snapshot_parity.py` không còn khớp mốc cũ. Sổ demo hiện dùng mốc 21/9 10:00 để buổi sáng demo vẫn còn lịch sử thói quen.
+`--until` khác `2026-09-20T00:00:00+07:00` thì `fides/tests/test_snapshot_parity.py` không còn khớp mốc cũ, vì test đó tiếp tục sự kiện từ đúng biên snapshot. Sổ demo hiện dùng mốc 21/9 10:00 để buổi sáng demo vẫn còn lịch sử thói quen. `test_decide_http_matches_seed45` không đọc mốc này: nó chấm model đã đóng gói, nên không cần phát lại 13 phút khi chỉ đổi mốc demo.

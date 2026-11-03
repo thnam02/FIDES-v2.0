@@ -17,6 +17,10 @@ test("level 1 waits on a reminder before the money moves", () => {
   assert.equal(confirmOutcome(3), "hold")
 })
 
+test("an unscored saved payee is not level 0 and still completes", () => {
+  assert.equal(resultRoute(null, "none"), "success")
+})
+
 test("each intervention name opens its screen", () => {
   assert.equal(resultRoute(0, "none"), "success")
   assert.equal(resultRoute(0, "reminder"), "success_reminder")

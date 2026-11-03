@@ -6,7 +6,41 @@ from datetime import datetime, timedelta
 
 HANGUP_MESSAGE = "Hãy cúp máy trước khi tiếp tục."
 LOCK_MESSAGE = "Chưa hết thời gian giữ để xác minh."
+UNSCORED_HEADLINE = "Không kiểm tra được giao dịch lúc này. Hãy chắc chắn bạn biết người nhận trước khi chuyển."
+FRAUD_CONFIRMED = "Tổng đài đã xác nhận đây là lừa đảo. Giao dịch đã được huỷ."
+GUARDIAN_DECLINED = "Người giám hộ đã từ chối giao dịch này. Hãy gọi lại cho người thân của bạn."
 OFF_CALL = {"none", "ended_in_session"}
+
+
+def unscored_decision(established: bool) -> dict:
+    """/decide không trả lời. Không bao giờ là mức 0. Người nhận đã biết thì đi tiếp, người mới thì tờ mức 1."""
+    if established:
+        return {
+            "level": None,
+            "unscored": True,
+            "funds_status": "released",
+            "hold_until": None,
+            "countdown_until": None,
+            "actions": [],
+            "reasons": [],
+            "signals_present": [],
+            "rules_fired": [],
+            "headline": "",
+            "intervention": "none",
+        }
+    return {
+        "level": 1,
+        "unscored": True,
+        "funds_status": "held",
+        "hold_until": None,
+        "countdown_until": None,
+        "actions": [],
+        "reasons": [{"code": "engine_unavailable", "text": UNSCORED_HEADLINE}],
+        "signals_present": ["new_payee"],
+        "rules_fired": [],
+        "headline": UNSCORED_HEADLINE,
+        "intervention": "reminder",
+    }
 
 
 def flags_from_decision(decided: dict, now: datetime) -> dict:

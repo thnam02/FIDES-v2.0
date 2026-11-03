@@ -134,6 +134,9 @@ def _demo_reset() -> None:
 
 
 def test_decide_http_matches_seed45() -> None:
+    # Không đọc f:snapshot_until. Số SAVED/RECALL là model đã đóng gói trên toàn bộ
+    # observed, không phải mốc demo 2026-09-21T10:00:00+07:00. Đổi mốc sổ demo
+    # không đòi phát lại 13 phút. Mốc đó nằm ở test_snapshot_parity.
     try:
         _decide_http_matches_seed45()
     finally:

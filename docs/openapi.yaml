@@ -606,8 +606,9 @@ paths:
         lúc đó chỉ là ghi chú info.
         medium giữ 30 phút. high giữ 24 giờ và chặn cho đến khi cúp máy.
         Header Idempotency-Key trả lại đúng lệnh đã tạo, không ghi nợ lần hai.
-        /decide hết 300 ms hoặc lỗi thì chuyển bình thường và ghi log engine_unavailable.
-        Từ 50 triệu tới người nhận mới thì vẫn hiện banner. Thiếu device thì engine dùng profile basic.
+        /decide hết 300 ms hoặc lỗi thì lệnh là unscored, không bao giờ mức 0, và ghi log engine_unavailable.
+        Người nhận đã lưu hoặc đã từng ghi sổ thì đi tiếp. Người nhận mới hiện tờ mức 1, chưa trừ tiền, chưa ghi vào sổ người nhận.
+        Thiếu device thì engine dùng profile basic.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -1840,9 +1841,14 @@ components:
       required: [level, actions, reasons]
       properties:
         level:
-          type: integer
-          enum: [0, 1, 2, 3]
-          description: "0 proceed, 1 banner, 2 three-button verification, 3 security workflow."
+          anyOf:
+            - type: integer
+              enum: [0, 1, 2, 3]
+            - type: "null"
+          description: "0 proceed, 1 banner, 2 three-button verification, 3 security workflow. null khi chưa chấm được và người nhận đã quen."
+        unscored:
+          type: boolean
+          description: "/decide không trả lời trong hạn của ngân hàng."
         actions:
           type: array
           items:

@@ -154,6 +154,10 @@ HEADLINES = {
     "R_MODEL_HIGH": "Giao dịch có dấu hiệu rủi ro cao theo mô hình của ngân hàng.",
 }
 LEVEL1_HEADLINE = "Hãy kiểm tra lại trước khi chuyển."
+LEVEL1_HEADLINES = {
+    "R_CALL_NEWPAYEE": "Bạn đang nghe điện thoại và chuyển cho người nhận mới. Nếu có ai đang hướng dẫn bạn chuyển tiền, hãy dừng lại.",
+    "R_HABIT_NEWPAYEE": "Số tiền này lớn hơn nhiều so với mức bạn thường chuyển. Hãy chắc chắn bạn biết người nhận.",
+}
 GROUP_ORDER = ("A", "B", "C", "D")
 
 
@@ -180,7 +184,15 @@ def intervention_of(fired: list[dict], level: int) -> dict:
             headline = text
             break
     if not headline and level >= 1:
-        headline = LEVEL1_HEADLINE
+        for rule in fired:
+            if int(rule.get("level") or 0) != 1:
+                continue
+            text = LEVEL1_HEADLINES.get(str(rule.get("id")))
+            if text:
+                headline = text
+                break
+        if not headline:
+            headline = LEVEL1_HEADLINE
     return {
         "groups_fired": groups,
         "strengthened": strengthened,

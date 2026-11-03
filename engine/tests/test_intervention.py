@@ -9,7 +9,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO)]
 
-from engine.policy.v24 import HEADLINES, LEVEL1_HEADLINE, evaluate
+from engine.policy.v24 import HEADLINES, LEVEL1_HEADLINE, LEVEL1_HEADLINES, evaluate
 from engine.tests.test_policy_v24 import _at, _facts, _funds
 
 
@@ -80,15 +80,23 @@ def test_capture_and_guided_are_group_b_only():
     assert guided.headline == HEADLINES["R_BEHAVIOUR_GUIDED"]
 
 
-def test_level_1_uses_the_default_headline_and_does_not_lock():
-    out = evaluate(_facts(call_state="active", new_payee=True, task_type="new_typed"))
-    assert out.level == 1
-    assert "R_CALL_NEWPAYEE" in out.rules_fired
-    assert out.groups_fired == []
-    assert out.strengthened is False
-    assert out.continue_requires_hangup is False
-    assert out.lock_minutes == 0
-    assert out.headline == LEVEL1_HEADLINE
+def test_level_1_call_and_habit_use_their_own_headlines():
+    call = evaluate(_facts(call_state="active", new_payee=True, task_type="new_typed"))
+    assert call.level == 1
+    assert "R_CALL_NEWPAYEE" in call.rules_fired
+    assert call.groups_fired == []
+    assert call.strengthened is False
+    assert call.continue_requires_hangup is False
+    assert call.lock_minutes == 0
+    assert call.headline == LEVEL1_HEADLINES["R_CALL_NEWPAYEE"]
+    habit = evaluate(_facts(call_state="none", new_payee=True, task_type="new_typed", habit_rare=True))
+    assert habit.level == 1
+    assert "R_HABIT_NEWPAYEE" in habit.rules_fired
+    assert "R_CALL_NEWPAYEE" not in habit.rules_fired
+    assert habit.headline == LEVEL1_HEADLINES["R_HABIT_NEWPAYEE"]
+    other = evaluate(_facts(call_state="none", new_payee=False, p_fraud=0.42))
+    if other.level == 1:
+        assert other.headline == LEVEL1_HEADLINE
 
 
 def test_model_high_and_simo_share_the_written_sentences():

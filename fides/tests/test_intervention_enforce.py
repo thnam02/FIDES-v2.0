@@ -10,7 +10,17 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "bank-core"), str(ROOT)]
 
-from enforce import HANGUP_MESSAGE, LOCK_MESSAGE, block_proceed, flags_from_decision, rejection_choice
+from enforce import (
+    FRAUD_CONFIRMED,
+    GUARDIAN_DECLINED,
+    HANGUP_MESSAGE,
+    LOCK_MESSAGE,
+    UNSCORED_HEADLINE,
+    block_proceed,
+    flags_from_decision,
+    rejection_choice,
+    unscored_decision,
+)
 
 ICT = ZoneInfo("Asia/Ho_Chi_Minh")
 NOW = datetime(2026, 9, 21, 10, 0, tzinfo=ICT)
@@ -61,3 +71,16 @@ def test_missing_lock_time_is_filled_from_the_decision():
     assert stored["lock_until"] == (NOW + timedelta(minutes=30)).isoformat()
     assert stored["hotline_verified"] is False
     assert block_proceed(stored, NOW, "ended_in_session", False) == LOCK_MESSAGE
+
+
+def test_a_missed_decide_is_unscored_and_never_level_zero():
+    known = unscored_decision(True)
+    new = unscored_decision(False)
+    assert known["level"] is None
+    assert known["unscored"] is True
+    assert known["funds_status"] == "released"
+    assert new["level"] == 1
+    assert new["headline"] == UNSCORED_HEADLINE
+    assert new["level"] != 0
+    assert FRAUD_CONFIRMED.startswith("Tổng đài đã xác nhận")
+    assert "người thân" in GUARDIAN_DECLINED
