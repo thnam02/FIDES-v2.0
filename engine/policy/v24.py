@@ -1,4 +1,4 @@
-"""Chính sách /decide v2.4. Đọc bank_policy.yaml. Không đổi model, không đọc truth."""
+"""Chính sách /decide v2.5. Đọc bank_policy.yaml. Không đổi model lừa đảo, không đọc truth."""
 
 from __future__ import annotations
 
@@ -46,6 +46,8 @@ SIGNAL_ORDER = (
     "verified_compromise",
     "recipient_bank_confirmed_mule",
     "recipient_le_confirmed_case",
+    "habit_rare",
+    "habit_money_rare",
 )
 
 
@@ -133,6 +135,12 @@ class Facts:
     spent_today: int | None = None
     verified: list[dict] = field(default_factory=list)
     user_level_floor: int = 0
+    habit_rare: bool | None = None
+    habit_money_rare: bool | None = None
+    habit_top_group: str | None = None
+    habit_top_feature: str | None = None
+    habit_quality: str | None = None
+    habit_extreme: bool = False
 
 
 @dataclass
@@ -268,6 +276,12 @@ def _signal(signal_id: str, status: str, tier: str, source: str, observed: datet
     return Signal(signal_id, status, tier, confidence, source, _stamp(observed), freshness)
 
 
+def _habit_flag(value: bool | None) -> str:
+    if value is None:
+        return "unknown"
+    return "present" if value else "absent"
+
+
 def _tri(present: bool | None) -> str:
     if present is None:
         return "unknown"
@@ -363,6 +377,8 @@ def build_signals(facts: Facts, now: datetime) -> tuple[dict[str, Signal], dict[
         "verified_compromise": _signal("verified_compromise", device_verified, "verified", "device_attestation", observed, now),
         "recipient_bank_confirmed_mule": _signal("recipient_bank_confirmed_mule", mule, "verified", "core_banking", observed, now),
         "recipient_le_confirmed_case": _signal("recipient_le_confirmed_case", case, "verified", "core_banking", observed, now),
+        "habit_rare": _signal("habit_rare", _habit_flag(facts.habit_rare), "contextual", "ledger", observed, now),
+        "habit_money_rare": _signal("habit_money_rare", _habit_flag(facts.habit_money_rare), "contextual", "ledger", observed, now),
     }
     flags = {
         "simo_info_rule": _info_rule(facts, signals),
@@ -673,6 +689,12 @@ def _reason_text(name: str, facts: Facts, funds: list[dict]) -> str:
         return "Ngân hàng đã xác nhận tài khoản nhận nằm trong hồ sơ đường dây."
     if name == "recipient_le_confirmed_case":
         return "Cơ quan điều tra đã xác nhận tài khoản nhận."
+    if name in {"habit_rare", "habit_money_rare"}:
+        from engine.features.habit import reason_text
+
+        if name == "habit_money_rare" and facts.habit_extreme:
+            return reason_text("amount", None, extreme=True)
+        return reason_text(facts.habit_top_group, facts.habit_top_feature, extreme=False)
     return ""
 
 

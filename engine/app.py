@@ -272,6 +272,27 @@ def with_add_method(present: list[str], method_known: bool) -> list[str]:
     return [*present, "add_method_missing"]
 
 
+def _apply_habit(facts, body: dict, ts_us: int) -> None:
+    if STORE is None:
+        return
+    from engine.features.habit import assess_live
+
+    result = assess_live(
+        STORE.redis,
+        str(body.get("sender_hash") or ""),
+        str(body.get("payee_hash") or ""),
+        int(body.get("amount") or 0),
+        int(body.get("balance") or 0),
+        int(ts_us),
+    )
+    facts.habit_rare = result.rare
+    facts.habit_money_rare = result.money_rare
+    facts.habit_top_group = result.top_group
+    facts.habit_top_feature = result.top_feature
+    facts.habit_quality = result.quality
+    facts.habit_extreme = result.extreme
+
+
 def decide(body: dict) -> tuple[int, dict]:
     if MODEL is None or STORE is None:
         return 503, {"detail": "model chưa nạp"}
@@ -322,6 +343,7 @@ def decide(body: dict) -> tuple[int, dict]:
     if behaviour is not None:
         facts.same_task_sessions = behaviour.n
         facts.behaviour_p_rarity = behaviour.p_rarity if behaviour.usable else None
+    _apply_habit(facts, body, to_us(decided))
     outcome = evaluate(facts, RedisState(STORE.redis), behaviour)
     level_name = STRING_LEVEL[outcome.level]
     guardian = bool(int(row.get("has_guardian") or 0))
@@ -563,6 +585,9 @@ def main() -> None:
     require_key()
     require_api_key()
     MODEL = Scorer.load()
+    from engine.features.habit import cached_population
+
+    cached_population()
     STORE = OnlineStore(flush=False)
     with connect() as conn:
         ensure_schema(conn)

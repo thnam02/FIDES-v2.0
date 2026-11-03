@@ -1,4 +1,4 @@
-version: "2.4.0"
+version: "2.5.0"
 description: >
   Luật và ngưỡng của /decide. Mức cuối là mức cao nhất trong các luật đã khớp.
   Không có luật đếm số tín hiệu. unknown không bao giờ bị coi là absent.
@@ -67,6 +67,12 @@ thresholds:
   cost_eta:
     value: 1
     provenance: chosen on simulated data
+  habit_score_above:
+    value: 0.08393150652186705
+    provenance: 98th percentile of IsolationForest anomaly scores on legit train-window transactions, seed 42
+  habit_profile_above:
+    value: 12080.215402926278
+    provenance: 98th percentile of the robust-z profile on legit train-window transactions, seed 42
 
 # Baseline cá nhân. high từ 8 phiên cùng task_type. Ngưỡng p 0,05 ở trên được đánh dấu demo.
 behavioural_baseline:
@@ -140,17 +146,21 @@ simo_context:
 rules:
   - id: R_CALL_FUNDS_NEWPAYEE
     level: 2
+    group: A
     all_present: [has_call, recent_funds_event, beneficiary_is_new]
     needs_call: true
   - id: R_PURPOSE_HIGH_RISK
     level: 2
+    group: C
     all_present: [purpose_high_risk]
   - id: R_RECIPIENT_UNUSUAL
     level: 2
+    group: D
     all_present: [recipient_unusual, beneficiary_is_new]
     all_absent: [merchant_verified]
   - id: R_SIMO
     level: 2
+    group: D
     all_present: [recipient_simo_flag, simo_with_context]
     all_absent: [simo_info_rule]
   - id: R_SIMO_ALONE
@@ -165,9 +175,11 @@ rules:
     all_present: [model_p_cost]
   - id: R_MODEL_HIGH
     level: 2
+    group: D
     all_present: [model_p_high]
   - id: R_BEHAVIOUR_GUIDED
     level: 2
+    group: B
     all_present: [behaviour_rare, has_call, beneficiary_is_new]
     baseline_at_least: medium
     needs_call: true
@@ -178,7 +190,16 @@ rules:
     unless_fired: [R_BEHAVIOUR_GUIDED]
   - id: R_CAPTURE
     level: 2
+    group: B
     all_present: [screen_capture_active]
+  - id: R_HABIT_NEWPAYEE
+    level: 1
+    all_present: [habit_rare, beneficiary_is_new]
+  - id: R_CALL_HABIT_NEWPAYEE
+    level: 2
+    group: A
+    all_present: [has_call, beneficiary_is_new, habit_money_rare]
+    needs_call: true
   - id: R_DEVICE_CAPABILITY
     level: 1
     all_present: [device_capability]

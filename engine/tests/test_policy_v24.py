@@ -71,10 +71,23 @@ def _ba_man(ts: datetime, call: str = "active", payee: str = PAYEE) -> Facts:
 
 def test_policy_file_records_provenance():
     policy = load_policy()
-    assert policy["version"] == "2.4.0"
+    assert policy["version"] == "2.5.0"
+    habit = {"habit_score_above", "habit_profile_above"}
     for name, item in policy["thresholds"].items():
+        if name in habit:
+            assert "98th percentile" in item["provenance"], name
+            continue
         assert item["provenance"] == "chosen on simulated data", name
     assert policy["thresholds"]["model_p_high"]["value"] == 0.8125
+    groups = {rule["id"]: rule.get("group") for rule in policy["rules"] if int(rule["level"]) >= 2}
+    assert groups["R_CALL_FUNDS_NEWPAYEE"] == "A"
+    assert groups["R_CALL_HABIT_NEWPAYEE"] == "A"
+    assert groups["R_BEHAVIOUR_GUIDED"] == "B"
+    assert groups["R_CAPTURE"] == "B"
+    assert groups["R_PURPOSE_HIGH_RISK"] == "C"
+    assert groups["R_RECIPIENT_UNUSUAL"] == "D"
+    assert groups["R_SIMO"] == "D"
+    assert groups["R_MODEL_HIGH"] == "D"
 
 
 def _signal(out, name: str):
