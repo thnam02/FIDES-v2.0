@@ -13,6 +13,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -131,38 +132,110 @@ def _known_payee(payee: str) -> bool:
 
 
 HOLD_PREFIX = "f:habithold:"
+CLEAR_DAYS = 30
+DISPUTED = "d"
 
 
 def hold_field(ts_us: int, payee: str, amount: int) -> str:
     return f"{int(ts_us)}|{payee}|{int(amount)}"
 
 
+def _pointer(client, decision_id: str) -> tuple[str, str] | None:
+    packed = client.get(f"{HOLD_PREFIX}id:{decision_id}")
+    if not packed or "\t" not in str(packed):
+        return None
+    sender, field = str(packed).split("\t", 1)
+    if not sender or not field:
+        return None
+    return sender, field
+
+
 def mark_hold(client, sender: str, ts_us: int, payee: str, amount: int, decision_id: str) -> None:
-    """Mức >= 1 hoặc đang trong episode. Mặc định chưa xác nhận, không ghi đè cờ đã xác nhận."""
+    """Mức >= 1 hoặc đang trong episode. Khách bấm tiếp không đưa lệnh này vào baseline."""
     if client is None or not sender or not decision_id:
         return
     field = hold_field(ts_us, payee, amount)
     key = f"{HOLD_PREFIX}{sender}"
-    if str(client.hget(key, field) or "") == "1":
-        client.set(f"{HOLD_PREFIX}id:{decision_id}", f"{sender}\t{field}")
+    client.set(f"{HOLD_PREFIX}id:{decision_id}", f"{sender}\t{field}")
+    if str(client.hget(key, field) or "") in {"1", DISPUTED}:
         return
     client.hset(key, field, "0")
-    client.set(f"{HOLD_PREFIX}id:{decision_id}", f"{sender}\t{field}")
 
 
-def confirm_hold(client, decision_id: str) -> None:
+def dispute_hold(client, decision_id: str) -> None:
     if client is None or not decision_id:
         return
-    packed = client.get(f"{HOLD_PREFIX}id:{decision_id}")
-    if not packed or "\t" not in str(packed):
+    found = _pointer(client, decision_id)
+    if found is None:
         return
-    sender, field = str(packed).split("\t", 1)
-    if sender and field:
-        client.hset(f"{HOLD_PREFIX}{sender}", field, "1")
+    sender, field = found
+    client.hset(f"{HOLD_PREFIX}{sender}", field, DISPUTED)
 
 
-def _blocked(holds: dict) -> set[str]:
-    return {str(field) for field, value in (holds or {}).items() if str(value) != "1"}
+def dispute_from_event(client, event: dict) -> None:
+    """Khiếu nại hoặc báo cáo lừa đảo gắn decision_id. Không đoán lệnh nếu thiếu mã."""
+    if client is None or not isinstance(event, dict):
+        return
+    decision_id = str(event.get("decision_id") or "")
+    if not decision_id:
+        return
+    if event.get("type") == "complaint" or event.get("fraud_report") is True:
+        dispute_hold(client, decision_id)
+
+
+def _episode_open(client, sender: str, now_us: int) -> bool:
+    raw = client.get(f"pol:v24:{sender}")
+    if not raw:
+        return False
+    try:
+        doc = json.loads(raw)
+        expires = datetime.fromisoformat(str(doc.get("expires_at") or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    if not doc.get("episode_id"):
+        return False
+    if expires.tzinfo is None:
+        from engine.decide import ICT
+
+        expires = expires.replace(tzinfo=ICT)
+    now = datetime.fromtimestamp(int(now_us) / 1_000_000, expires.tzinfo)
+    return now < expires
+
+
+def verify_legitimate(client, decision_id: str, now_us: int) -> bool:
+    """Ngân hàng xác minh sau khi episode đã đóng. Khách bấm tiếp không gọi hàm này."""
+    if client is None or not decision_id:
+        return False
+    found = _pointer(client, decision_id)
+    if found is None:
+        return False
+    sender, field = found
+    if _episode_open(client, sender, now_us):
+        return False
+    client.hset(f"{HOLD_PREFIX}{sender}", field, "1")
+    return True
+
+
+def _hold_ts(field: str) -> int | None:
+    try:
+        return int(str(field).split("|", 1)[0])
+    except ValueError:
+        return None
+
+
+def _blocked(holds: dict, now_us: int) -> set[str]:
+    cutoff = int(now_us) - CLEAR_DAYS * DAY_US
+    blocked = set()
+    for field, value in (holds or {}).items():
+        flag = str(value)
+        if flag == "1":
+            continue
+        if flag == "0":
+            stamp = _hold_ts(str(field))
+            if stamp is not None and stamp <= cutoff:
+                continue
+        blocked.add(str(field))
+    return blocked
 
 
 @dataclass
@@ -456,12 +529,33 @@ def _finish(raw: Raw, features: dict[str, float], amount: int, population: Popul
     )
 
 
+def _c_factor(samples: int) -> float:
+    """Độ dài đường đi trung bình của một cây isolation. Cùng công thức với scikit-learn."""
+    if samples <= 1:
+        return 0.0
+    if samples == 2:
+        return 1.0
+    return 2.0 * (math.log(samples - 1.0) + float(np.euler_gamma)) - 2.0 * (samples - 1.0) / samples
+
+
 class HabitModel:
     def __init__(self, model, explainer, population: Population, version: str):
         self.model = model
         self.explainer = explainer
         self.population = population
         self.version = version
+        self._depth_denom = len(model.estimators_) * _c_factor(int(model._max_samples))
+
+    def score_one(self, features: dict[str, float]) -> float:
+        """Cùng điểm với -decision_function cho một lệnh. Không mở joblib cho mỗi dòng."""
+        row = np.asarray(vector_of(features), dtype=np.float32).reshape(1, -1)
+        forest = self.model
+        depth = 0.0
+        for tree, lengths, averages in zip(forest.estimators_, forest._decision_path_lengths, forest._average_path_length_per_tree, strict=True):
+            leaf = int(tree.apply(row, check_input=False)[0])
+            depth += float(lengths[leaf] + averages[leaf] - 1.0)
+        raw = 2.0 ** (-depth / self._depth_denom)
+        return float(raw + float(forest.offset_))
 
     @classmethod
     def load(cls, directory: Path = ART) -> HabitModel:
@@ -485,16 +579,20 @@ class HabitModel:
         explainer = shap.TreeExplainer(model)
         return cls(model, explainer, Population.from_dict(spec["population"]), str(spec["model_version"]))
 
-    def anomaly(self, features: dict[str, float]) -> tuple[float, np.ndarray]:
+    def explain(self, features: dict[str, float]) -> np.ndarray:
         row = _named(vector_of(features).reshape(1, -1))
-        score = float(-self.model.decision_function(row)[0])
         values = self.explainer.shap_values(row, check_additivity=False)
         if hasattr(values, "values"):
             values = values.values
         contrib = -np.asarray(values, dtype=float).reshape(-1)
         if contrib.shape != (len(FEATURES),):
             raise RuntimeError("shap habit lệch số cột")
-        return score, contrib
+        return contrib
+
+    def anomaly(self, features: dict[str, float]) -> tuple[float, np.ndarray]:
+        row = _named(vector_of(features).reshape(1, -1))
+        score = float(-self.model.decision_function(row)[0])
+        return score, self.explain(features)
 
     def top_feature(self, features: dict[str, float], contrib: np.ndarray) -> str | None:
         """Đặc trưng phía cao đóng góp mạnh nhất vào điểm bất thường. Phía thấp không tính."""
@@ -563,16 +661,30 @@ def assess(history: list[Transfer], ts_us: int, payee: str, amount: int, balance
     if quality_of(raw.n) == "low" or model is None:
         score, top = profile_score(features, population)
         return _finish(raw, features, int(amount), population, score, top if score > 0 else None, "robust_z")
-    row = _named(vector_of(features).reshape(1, -1))
-    score = float(-model.model.decision_function(row)[0])
+    # Không có đặc trưng phía cao thì habit_rare không thể đúng, nên không chấm rừng và không giải thích.
+    if not _high_side(features, population):
+        return _finish(raw, features, int(amount), population, 0.0, None, "isolation_forest")
+    if hasattr(model, "score_one"):
+        score = model.score_one(features)
+    else:
+        row = _named(vector_of(features).reshape(1, -1))
+        score = float(-model.model.decision_function(row)[0])
     if score <= population.if_threshold:
         return _finish(raw, features, int(amount), population, score, None, "isolation_forest")
-    _score, contrib = model.anomaly(features)
+    contrib = model.explain(features)
     return _finish(raw, features, int(amount), population, score, model.top_feature(features, contrib), "isolation_forest")
 
 
+def _high_side(features: dict[str, float], population: Population) -> bool:
+    for name in FEATURES:
+        center = float(population.feature_median.get(name, 0.0))
+        if float(features[name]) >= center:
+            return True
+    return False
+
+
 def inspect_row(history: list[Transfer], ts_us: int, payee: str, amount: int, balance: int, population: Population, model: HabitModel | None = None) -> dict:
-    """Đủ để xem vì sao một lệnh không vượt ngưỡng. TreeSHAP vẫn chạy khi có mô hình."""
+    """Cùng cổng với assess: TreeSHAP chỉ chạy khi lệnh có thể là habit_rare."""
     result = assess(history, ts_us, payee, amount, balance, population, model)
     ledger = Ledger()
     for item in sorted(history, key=lambda row: int(row.ts_us)):
@@ -582,12 +694,6 @@ def inspect_row(history: list[Transfer], ts_us: int, payee: str, amount: int, ba
     raw = ledger.snapshot(int(ts_us), str(payee or ""), int(amount), int(balance))
     features = features_from(raw, int(amount), population)
     typical = shrink(raw.n_base, raw.week_median, population.typical_7d, population.prior)
-    top = result.top_feature
-    group = result.top_group
-    if model is not None and quality_of(raw.n) != "low":
-        _score, contrib = model.anomaly(features)
-        top = model.top_feature(features, contrib)
-        group = GROUPS.get(top or "", None)
     return {
         "features": features,
         "personal_max": raw.personal_max,
@@ -597,8 +703,8 @@ def inspect_row(history: list[Transfer], ts_us: int, payee: str, amount: int, ba
         "n": raw.n,
         "n_base": raw.n_base,
         "score": result.score,
-        "top_feature": top,
-        "top_group": group,
+        "top_feature": result.top_feature,
+        "top_group": result.top_group,
         "rare": result.rare,
         "money_rare": result.money_rare,
         "quality": result.quality,
@@ -629,7 +735,7 @@ def read_redis(client, sender_hash: str, ts_us: int) -> list[Transfer]:
     found = []
     fetched = pipe.execute()
     for index in range(0, len(fetched), 2):
-        blocked = _blocked(fetched[index + 1])
+        blocked = _blocked(fetched[index + 1], int(ts_us))
         for member in fetched[index] or []:
             item = _parse_member(str(member))
             if item is None or item.amount <= 0:
@@ -749,9 +855,8 @@ def score_sessions(session_ids: set[str]) -> dict[str, Result]:
         else:
             score = scores[pos]
             top = None
-            if score > population.if_threshold:
-                _ignored, contrib = model.anomaly(features)
-                top = model.top_feature(features, contrib)
+            if score > population.if_threshold and _high_side(features, population):
+                top = model.top_feature(features, model.explain(features))
             result = _finish(raw, features, amount, population, score, top, "isolation_forest")
         found[str(session_of[index])] = result
     return found

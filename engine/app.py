@@ -237,6 +237,10 @@ def ingest(event: dict) -> bool:
                 if stamp is not None:
                     with audit_conn() as conn:
                         reset_countdown(conn, account, stamp + timedelta(minutes=10), stamp)
+    if STORE is not None:
+        from engine.features.habit import dispute_from_event
+
+        dispute_from_event(STORE.redis, event)
     if event.get("type") in TYPES and "account_hash" in event:
         with connect() as conn:
             return insert_event(conn, event)
@@ -431,10 +435,6 @@ def respond(body: dict) -> tuple[int, dict]:
                 "body": body,
             },
         )
-    if STORE is not None and updated["funds_status"] == "released" and (body.get("proceed") or body.get("guardian_confirm")):
-        from engine.features.habit import confirm_hold
-
-        confirm_hold(STORE.redis, str(body["decision_id"]))
     return 200, {
         "decision_id": body["decision_id"],
         "level": updated["level"],
@@ -555,10 +555,6 @@ class Handler(BaseHTTPRequestHandler):
             if not logged:
                 _bad(self, 404, "không có quyết định")
                 return
-            if choice == "continue" and STORE is not None:
-                from engine.features.habit import confirm_hold
-
-                confirm_hold(STORE.redis, decision_id)
             _json(self, 200, {"decision_id": decision_id, "choice": choice, "logged": True})
             return
         if path not in {"/events", "/decide", "/respond"}:

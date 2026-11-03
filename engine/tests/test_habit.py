@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,10 +22,15 @@ from engine.features.habit import (
     Ledger,
     Population,
     Transfer,
+    _blocked,
+    _named,
+    vector_of,
     assess,
-    confirm_hold,
+    dispute_from_event,
+    dispute_hold,
     hour_weekday,
     mark_hold,
+    verify_legitimate,
 )
 from engine.policy.v24 import Facts, evaluate, load_policy
 
@@ -109,8 +115,8 @@ def test_timing_only_habit_rare_does_not_set_habit_money_rare():
         def decision_function(self, _row):
             return np.asarray([-10.0])
 
-        def anomaly(self, _features):
-            return 10.0, np.zeros(len(FEATURES))
+        def explain(self, _features):
+            return np.zeros(len(FEATURES))
 
         def top_feature(self, _features, _contrib):
             return "hour_rarity"
@@ -200,20 +206,82 @@ def test_unconfirmed_alert_stays_out_of_the_baseline_but_inside_the_week_sum():
     assert back.n_base == 2
 
 
-def test_confirming_a_hold_puts_the_transfer_back():
+def _hold(client: _Hash, sender: str = "sender") -> dict[str, str]:
+    return client.hashes.get(f"f:habithold:{sender}", {})
+
+
+def test_customer_actions_leave_the_twenty_million_out_of_the_baseline():
     client = _Hash()
-    mark_hold(client, "sender", 10, "payee", 20_000_000, "dec-1")
-    assert client.hget("f:habithold:sender", "10|payee|20000000") == "0"
-    confirm_hold(client, "dec-1")
-    assert client.hget("f:habithold:sender", "10|payee|20000000") == "1"
-    mark_hold(client, "sender", 10, "payee", 20_000_000, "dec-1")
-    assert client.hget("f:habithold:sender", "10|payee|20000000") == "1"
+    stamp = _us(NOW - timedelta(days=1))
+    mark_hold(client, "sender", stamp, "scam-1", 20_000_000, "dec-1")
+    for _action in ("continue", "proceed", "guardian_confirm"):
+        assert client.hget("f:habithold:sender", f"{stamp}|scam-1|20000000") == "0"
+    assert f"{stamp}|scam-1|20000000" in _blocked(_hold(client), _us(NOW))
+    ledger = Ledger()
+    ledger.add(Transfer(_us(NOW - timedelta(days=10)), "old", 2_000_000, 80_000_000, True))
+    ledger.add(Transfer(stamp, "scam-1", 20_000_000, 80_000_000, False))
+    raw = ledger.snapshot(_us(NOW), "scam-2", 20_000_000, 80_000_000)
+    assert raw.personal_max == 2_000_000
+    assert raw.personal_median == 2_000_000
+    assert raw.week_median == 2_000_000
+    assert raw.ratios == [2_000_000 / 80_000_000]
+    assert raw.week_sum == 40_000_000
+
+
+def test_a_quiet_hold_returns_after_thirty_days_and_a_dispute_does_not():
+    client = _Hash()
+    quiet = _us(NOW - timedelta(days=30))
+    recent = _us(NOW - timedelta(days=29))
+    reported = _us(NOW - timedelta(days=40))
+    mark_hold(client, "sender", quiet, "payee", 20_000_000, "dec-quiet")
+    mark_hold(client, "sender", recent, "payee", 20_000_000, "dec-recent")
+    mark_hold(client, "sender", reported, "payee", 20_000_000, "dec-reported")
+    dispute_hold(client, "dec-reported")
+    dispute_from_event(client, {"type": "complaint", "decision_id": "dec-recent"})
+    dispute_from_event(client, {"type": "txn", "fraud_report": True})
+    blocked = _blocked(_hold(client), _us(NOW))
+    assert f"{quiet}|payee|20000000" not in blocked
+    assert f"{recent}|payee|20000000" in blocked
+    assert f"{reported}|payee|20000000" in blocked
+    assert client.hget("f:habithold:sender", f"{recent}|payee|20000000") == "d"
+
+
+def test_bank_verification_waits_until_the_episode_closes():
+    client = _Hash()
+    stamp = _us(NOW - timedelta(days=1))
+    mark_hold(client, "sender", stamp, "payee", 20_000_000, "dec-bank")
+    assert verify_legitimate(client, "dec-bank", _us(NOW)) is True
+    assert client.hget("f:habithold:sender", f"{stamp}|payee|20000000") == "1"
+    mark_hold(client, "sender", stamp, "payee", 20_000_000, "dec-bank")
+    assert client.hget("f:habithold:sender", f"{stamp}|payee|20000000") == "1"
+    mark_hold(client, "sender", stamp, "other", 20_000_000, "dec-open")
+    client.set(
+        "pol:v24:sender",
+        json.dumps({"episode_id": "ep-1", "expires_at": (NOW + timedelta(hours=2)).isoformat()}),
+    )
+    assert verify_legitimate(client, "dec-open", _us(NOW)) is False
+    assert client.hget("f:habithold:sender", f"{stamp}|other|20000000") == "0"
+    client.set(
+        "pol:v24:sender",
+        json.dumps({"episode_id": "ep-1", "expires_at": (NOW - timedelta(hours=1)).isoformat()}),
+    )
+    dispute_hold(client, "dec-open")
+    assert verify_legitimate(client, "dec-open", _us(NOW)) is True
+    assert client.hget("f:habithold:sender", f"{stamp}|other|20000000") == "1"
 
 
 def test_hour_bucket_uses_vietnam_time():
     stamp = datetime(2026, 9, 21, 15, 30, tzinfo=ICT)
     assert stamp.weekday() == 0
     assert hour_weekday(_us(stamp)) == (15, 0)
+
+
+def test_single_row_score_matches_the_forest():
+    loaded = HabitModel.load()
+    features = {name: 0.2 * (index + 1) for index, name in enumerate(FEATURES)}
+    frame = _named(vector_of(features).reshape(1, -1))
+    official = float(-loaded.model.decision_function(frame)[0])
+    assert loaded.score_one(features) == official
 
 
 def test_model_artifact_loads_and_matches_the_policy_threshold():
