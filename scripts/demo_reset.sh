@@ -95,18 +95,54 @@ while true; do
 done
 # Chỉ xoá kho episode và baseline thao tác. SCAN + DEL, không FLUSHDB.
 # BEGIN purge_prefix
+# redis-cli trên macOS đôi khi trả setsockopt(TCP_NODELAY): Invalid argument dù Redis đang nghe.
+redis_cmd() {
+  tries=0
+  note=""
+  while true; do
+    if note=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@" 2>&1); then
+      printf '%s\n' "$note"
+      return 0
+    fi
+    case "$note" in
+      *TCP_NODELAY*|*Connection\ refused*|*LOADING*|*loading*)
+        ;;
+      *)
+        echo "redis-cli lỗi: $note" >&2
+        return 1
+        ;;
+    esac
+    tries=$((tries + 1))
+    if [ "$tries" -ge 40 ]; then
+      echo "redis-cli lỗi: $note" >&2
+      return 1
+    fi
+    sleep 0.25
+  done
+}
 purge_prefix() {
   pattern=$1
   label=$2
   removed=0
   cursor=0
   while true; do
-    out=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$DB" --raw SCAN "$cursor" MATCH "$pattern" COUNT 500)
+    out=$(redis_cmd -n "$DB" --raw SCAN "$cursor" MATCH "$pattern" COUNT 500)
     cursor=$(printf '%s\n' "$out" | head -n 1)
     keys=$(printf '%s\n' "$out" | tail -n +2)
     if [ -n "$keys" ]; then
       n=$(printf '%s\n' "$keys" | wc -l | tr -d ' ')
-      printf '%s\n' "$keys" | xargs -n 100 redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$DB" DEL >/dev/null
+      # xargs không gọi được hàm shell. Gom khoá rồi xoá qua redis_cmd để lỗi TCP_NODELAY được thử lại.
+      set --
+      for key in $keys; do
+        set -- "$@" "$key"
+        if [ "$#" -ge 100 ]; then
+          redis_cmd -n "$DB" DEL "$@" >/dev/null
+          set --
+        fi
+      done
+      if [ "$#" -gt 0 ]; then
+        redis_cmd -n "$DB" DEL "$@" >/dev/null
+      fi
       removed=$((removed + n))
     fi
     if [ "$cursor" = "0" ]; then
@@ -287,6 +323,7 @@ FIDES_ROOT="$ROOT" python3 - <<'PY'
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -308,12 +345,23 @@ base = [
     "-n",
     os.environ["REDIS_URL"].rstrip("/").rsplit("/", 1)[-1],
 ]
-removed = subprocess.run([*base, "ZREMRANGEBYSCORE", key, str(start), str(end)], check=False, capture_output=True, text=True)
-if removed.returncode != 0:
-    sys.stderr.write(removed.stderr or removed.stdout)
+
+def redis_call(args: list[str]) -> subprocess.CompletedProcess[str]:
+    last = ""
+    for _ in range(40):
+        done = subprocess.run([*base, *args], check=False, capture_output=True, text=True)
+        if done.returncode == 0:
+            return done
+        last = done.stderr or done.stdout
+        if "TCP_NODELAY" not in last and "Connection refused" not in last and "LOADING" not in last:
+            break
+        time.sleep(0.25)
+    sys.stderr.write(last)
     sys.exit(1)
-left = subprocess.run([*base, "ZCOUNT", key, str(start), str(end)], check=False, capture_output=True, text=True)
-if left.returncode != 0 or left.stdout.strip() != "0":
+
+removed = redis_call(["ZREMRANGEBYSCORE", key, str(start), str(end)])
+left = redis_call(["ZCOUNT", key, str(start), str(end)])
+if left.stdout.strip() != "0":
     sys.stderr.write(f"product_savings_7d của A0072556 còn {left.stdout.strip()}\n")
     sys.exit(1)
 print(f"product_savings_7d A0072556 {left.stdout.strip()}")

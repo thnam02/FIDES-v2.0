@@ -9,7 +9,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO)]
 
-from engine.policy.v24 import HEADLINES, LEVEL1_HEADLINE, LEVEL1_HEADLINES, evaluate
+from engine.policy.v24 import HEADLINES, LEVEL1_HEADLINE, LEVEL1_HEADLINES, PURPOSE_HEADLINES, evaluate
 from engine.tests.test_policy_v24 import _at, _facts, _funds
 
 
@@ -52,7 +52,7 @@ def test_two_groups_lock_for_thirty_minutes_and_the_earlier_rule_is_the_headline
     assert out.continue_requires_hangup is True
     assert out.lock_minutes == 30
     assert out.lock_until == when + timedelta(minutes=30)
-    assert out.headline == HEADLINES["R_PURPOSE_HIGH_RISK"]
+    assert out.headline == PURPOSE_HEADLINES["authority_request"]
 
 
 def test_capture_and_guided_are_group_b_only():

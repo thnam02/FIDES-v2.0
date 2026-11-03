@@ -152,7 +152,6 @@ HEADLINES = {
     "R_CALL_HABIT_NEWPAYEE": "Bạn đang chuyển số tiền lớn khác hẳn thường ngày cho người lạ trong lúc nghe điện thoại.",
     "R_BEHAVIOUR_GUIDED": "Cách bạn thao tác giống như đang được người khác đọc cho từng bước.",
     "R_CAPTURE": "Màn hình của bạn đang bị ghi hoặc chia sẻ. Kẻ lừa đảo thường yêu cầu chia sẻ màn hình để hướng dẫn.",
-    "R_PURPOSE_HIGH_RISK": "Cơ quan nhà nước không bao giờ yêu cầu chuyển tiền để xác minh, và không có khoản nhận thưởng nào bắt nộp phí trước.",
     "R_RECIPIENT_UNUSUAL": "Tài khoản nhận có dấu hiệu được dùng để nhận tiền lừa đảo.",
     "R_SIMO": "Tài khoản nhận có dấu hiệu được dùng để nhận tiền lừa đảo.",
     "R_MODEL_HIGH": "Giao dịch có dấu hiệu rủi ro cao theo mô hình của ngân hàng.",
@@ -162,6 +161,12 @@ LEVEL1_HEADLINES = {
     "R_CALL_NEWPAYEE": "Bạn đang nghe điện thoại và chuyển cho người nhận mới. Nếu có ai đang hướng dẫn bạn chuyển tiền, hãy dừng lại.",
     "R_HABIT_NEWPAYEE": "Số tiền này lớn hơn nhiều so với mức bạn thường chuyển. Hãy chắc chắn bạn biết người nhận.",
 }
+PURPOSE_HEADLINES = {
+    "authority_request": "Cơ quan nhà nước không bao giờ yêu cầu chuyển tiền để xác minh.",
+    "fee_to_receive": "Không có khoản thưởng hay khoản vay thật nào bắt nộp phí trước để nhận tiền.",
+    "investment": "Đầu tư thật không chuyển vào tài khoản cá nhân. Đây là dấu hiệu thường gặp của lừa đảo đầu tư.",
+}
+EPISODE_HEADLINE = "Bạn vừa có một giao dịch bị tạm dừng vì dấu hiệu lừa đảo. Các giao dịch tiếp theo cũng được kiểm tra kỹ."
 GROUP_ORDER = ("A", "B", "C", "D")
 
 
@@ -174,7 +179,13 @@ def lock_minutes_setting() -> int:
     return minutes if minutes > 0 else 30
 
 
-def intervention_of(fired: list[dict], level: int) -> dict:
+def _rule_headline(rule_id: str, purpose: str | None) -> str:
+    if rule_id == "R_PURPOSE_HIGH_RISK":
+        return PURPOSE_HEADLINES.get(str(purpose or ""), "")
+    return HEADLINES.get(rule_id, "")
+
+
+def intervention_of(fired: list[dict], level: int, purpose: str | None = None) -> dict:
     """Nhóm của luật mức 2. Không đổi luật nào được khớp."""
     level2 = [rule for rule in fired if int(rule.get("level") or 0) == 2]
     seen = {str(rule.get("group")) for rule in level2 if rule.get("group")}
@@ -183,7 +194,7 @@ def intervention_of(fired: list[dict], level: int) -> dict:
     hangup = any(bool(rule.get("needs_call")) for rule in level2)
     headline = ""
     for rule in level2:
-        text = HEADLINES.get(str(rule.get("id")))
+        text = _rule_headline(str(rule.get("id")), purpose)
         if text:
             headline = text
             break
@@ -231,6 +242,7 @@ class Outcome:
     lock_until: datetime | None = None
     headline: str = ""
     mobilised_funds: list[dict] = field(default_factory=list)
+    episode_rules: list[str] = field(default_factory=list)
 
     @property
     def evidence_card(self) -> dict:
@@ -241,6 +253,7 @@ class Outcome:
             "episode_id": self.episode_id,
             "behaviour_score": self.behaviour_score,
             "p_rarity": self.behaviour_p_rarity,
+            "episode_rules": list(self.episode_rules),
             "funds": [
                 {
                     "kind": item.get("type"),
@@ -323,6 +336,7 @@ def _blank() -> dict:
         "expires_at": "",
         "payee": "",
         "funds": [],
+        "rules": [],
         "tallies": [],
         "customer_floor": 0,
         "customer_until": "",
@@ -689,6 +703,7 @@ def _expire(doc: dict, now: datetime) -> None:
             doc["floor"] = 0
             doc["payee"] = ""
             doc["funds"] = []
+            doc["rules"] = []
             doc["scope"] = ""
             doc["opened_at"] = ""
             doc["expires_at"] = ""
@@ -871,6 +886,7 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
         doc["expires_at"] = _stamp(clock + timedelta(hours=float(threshold("episode_hours"))))
         doc["payee"] = facts.payee
         doc["funds"] = _funds_keys(funds)
+        doc["rules"] = [str(rule["id"]) for rule in fired]
         doc["scope"] = "broad"
         doc["floor"] = level
         in_episode = True
@@ -905,7 +921,12 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
     if behaviour is not None:
         behaviour_score = behaviour.score
         behaviour_p = behaviour.p_rarity
-    view = intervention_of(fired, level)
+    view = intervention_of(fired, level, facts.transfer_purpose)
+    carried = joined and episode_floor >= 2 and level >= 2 and not any(int(rule.get("level") or 0) >= 2 for rule in fired)
+    if carried:
+        view["headline"] = EPISODE_HEADLINE
+        if facts.call_state == "active":
+            view["continue_requires_hangup"] = True
     lock_until = clock + timedelta(minutes=view["lock_minutes"]) if view["lock_minutes"] else None
     return Outcome(
         level=level,
@@ -931,6 +952,7 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
         lock_until=lock_until,
         headline=view["headline"],
         mobilised_funds=funds,
+        episode_rules=list(doc.get("rules") or []) if in_episode else [],
     )
 
 

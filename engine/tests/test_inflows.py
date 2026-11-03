@@ -11,7 +11,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO)]
 
 from engine.policy.inflows import classify_inflows, is_recurring
-from engine.policy.v24 import HEADLINES, MemoryState, evaluate, load_policy
+from engine.policy.v24 import EPISODE_HEADLINE, HEADLINES, PURPOSE_HEADLINES, MemoryState, evaluate, load_policy
 from engine.tests.test_policy_v24 import _facts
 
 ICT = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -178,6 +178,31 @@ def test_investment_is_high_risk_only_for_a_new_personal_account():
     )
     assert personal.level == 2
     assert "R_PURPOSE_HIGH_RISK" in personal.rules_fired
+    assert personal.headline == PURPOSE_HEADLINES["investment"]
+    fee = evaluate(
+        _facts(
+            ts=WHEN,
+            call_state="none",
+            new_payee=False,
+            transfer_purpose="fee_to_receive",
+            funds_events=[],
+            p_fraud=0.0,
+            sender="1" * 64,
+        )
+    )
+    assert fee.headline == PURPOSE_HEADLINES["fee_to_receive"]
+    authority = evaluate(
+        _facts(
+            ts=WHEN,
+            call_state="none",
+            new_payee=False,
+            transfer_purpose="authority_request",
+            funds_events=[],
+            p_fraud=0.0,
+            sender="2" * 64,
+        )
+    )
+    assert authority.headline == PURPOSE_HEADLINES["authority_request"]
 
     firm = evaluate(
         _facts(
@@ -250,3 +275,44 @@ def test_a_level_2_episode_still_floors_another_new_payee_twelve_hours_later():
     assert later.level == 2
     assert later.episode_id == opened.episode_id
     assert "R_FUNDS_PASSTHROUGH" not in later.rules_fired
+    assert later.rules_fired == []
+    assert later.headline == EPISODE_HEADLINE
+    assert later.continue_requires_hangup is False
+    assert later.evidence_card["episode_rules"] == opened.rules_fired
+    called = evaluate(
+        _facts(
+            sender=sender,
+            payee="3" * 64,
+            ts=WHEN + timedelta(hours=13),
+            amount=1_000_000,
+            call_state="active",
+            new_payee=True,
+            task_type="new_typed",
+            funds_events=[],
+            habit_money_rare=False,
+            p_fraud=0.0,
+        ),
+        state,
+    )
+    assert called.level == 2
+    assert "R_FUNDS_PASSTHROUGH" not in called.rules_fired
+    assert called.headline == EPISODE_HEADLINE
+    assert called.continue_requires_hangup is True
+    assert called.evidence_card["episode_rules"] == opened.rules_fired
+    ended = evaluate(
+        _facts(
+            sender=sender,
+            payee="4" * 64,
+            ts=WHEN + timedelta(hours=14),
+            amount=1_000_000,
+            call_state="ended_in_session",
+            new_payee=True,
+            task_type="new_typed",
+            funds_events=[],
+            habit_money_rare=False,
+            p_fraud=0.0,
+        ),
+        state,
+    )
+    assert ended.headline == EPISODE_HEADLINE
+    assert ended.continue_requires_hangup is False

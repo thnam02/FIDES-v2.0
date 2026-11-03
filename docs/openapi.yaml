@@ -1525,6 +1525,27 @@ components:
             - $ref: "#/components/schemas/EntryDetail"
             - type: "null"
           description: Cách dán hoặc lấy số từ ảnh. App gắn khi hiện thẻ. Engine không đọc.
+        funds:
+          type: array
+          description: Khoản vừa vào, gồm sản phẩm của ngân hàng và tiền vào bất thường.
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, amount, channel, at]
+            properties:
+              kind:
+                type: string
+              amount:
+                type: integer
+              channel:
+                type: string
+              at:
+                type: string
+        episode_rules:
+          type: array
+          description: Luật đã mở episode. Có khi quyết định này nằm trong episode đó.
+          items:
+            type: string
     Intervention:
       type: string
       enum: [none, banner, reminder, three_button, security_workflow]

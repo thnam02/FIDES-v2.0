@@ -17,4 +17,6 @@ Lương và lương hưu không tính là tiền vào bất thường: cùng ng�
 
 Mục đích `investment` chỉ thành `purpose_high_risk` khi người nhận mới và là tài khoản cá nhân. Cùng ngân hàng: `account_type` của bank-core; `business`, `securities`, `merchant` không phải cá nhân. Liên ngân hàng không có loại tài khoản: tên đã bỏ dấu mà chứa `CONG TY`, `CTCP`, `TNHH` hoặc `QUY`, hoặc nằm trong `verified_companies`, được coi là tổ chức. Tên cá nhân không có các cụm đó được coi là tài khoản cá nhân. Đây là giả định vì liên ngân hàng không trả loại tài khoản.
 
-Mọi quyết định mức 2 mở một episode 24 giờ. Episode đó nâng mức của lần chuyển sau tới người nhận mới, không chỉ khi có dấu hiệu bị hướng dẫn. Người nhận đã lưu không bị nâng theo episode đó.
+Câu của `R_PURPOSE_HIGH_RISK` theo mục đích: cơ quan, phí để nhận tiền, hoặc đầu tư vào tài khoản cá nhân. Mỗi câu một ý, không gộp.
+
+Mọi quyết định mức 2 mở một episode 24 giờ và ghi các luật đã khớp vào episode. Episode đó nâng mức của lần chuyển sau tới người nhận mới, không chỉ khi có dấu hiệu bị hướng dẫn. Người nhận đã lưu không bị nâng theo episode đó. Lần sau không khớp luật mức 2 mới thì câu là episode đang mở, thẻ bằng chứng liệt kê luật gốc trong `episode_rules`, và nếu lúc này đang nghe điện thoại thì vẫn phải cúp máy trước khi tiếp tục.
