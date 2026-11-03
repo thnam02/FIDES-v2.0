@@ -131,7 +131,17 @@ def insert_decision(conn, row: dict) -> bool:
 
 def reject_choice(choice: object, response_ms: object) -> bool:
     """pause, cancel, continue là khách bấm. abandoned là lệnh mức 1 hết hạn, không phải huỷ."""
-    if choice not in {"pause", "cancel", "continue", "abandoned"}:
+    if choice not in {
+        "pause",
+        "cancel",
+        "continue",
+        "abandoned",
+        "proceed",
+        "proceed_rejected_call",
+        "proceed_rejected_lock",
+        "hotline",
+        "guardian_confirm",
+    }:
         return True
     if isinstance(response_ms, bool) or not isinstance(response_ms, int):
         return True

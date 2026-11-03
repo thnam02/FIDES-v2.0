@@ -143,6 +143,53 @@ class Facts:
     habit_extreme: bool = False
 
 
+HEADLINES = {
+    "R_CALL_FUNDS_NEWPAYEE": "Bạn vừa rút tiền tiết kiệm hoặc nhận tiền và đang chuyển cho người lạ trong lúc nghe điện thoại. Đây là cách kẻ giả danh công an thường lừa tiền.",
+    "R_CALL_HABIT_NEWPAYEE": "Bạn đang chuyển số tiền lớn khác hẳn thường ngày cho người lạ trong lúc nghe điện thoại.",
+    "R_BEHAVIOUR_GUIDED": "Cách bạn thao tác giống như đang được người khác đọc cho từng bước.",
+    "R_CAPTURE": "Màn hình của bạn đang bị ghi hoặc chia sẻ. Kẻ lừa đảo thường yêu cầu chia sẻ màn hình để hướng dẫn.",
+    "R_PURPOSE_HIGH_RISK": "Cơ quan nhà nước không bao giờ yêu cầu chuyển tiền để xác minh, và không có khoản nhận thưởng nào bắt nộp phí trước.",
+    "R_RECIPIENT_UNUSUAL": "Tài khoản nhận có dấu hiệu được dùng để nhận tiền lừa đảo.",
+    "R_SIMO": "Tài khoản nhận có dấu hiệu được dùng để nhận tiền lừa đảo.",
+    "R_MODEL_HIGH": "Giao dịch có dấu hiệu rủi ro cao theo mô hình của ngân hàng.",
+}
+LEVEL1_HEADLINE = "Hãy kiểm tra lại trước khi chuyển."
+GROUP_ORDER = ("A", "B", "C", "D")
+
+
+def lock_minutes_setting() -> int:
+    item = load_policy().get("interventions") or {}
+    try:
+        minutes = int(item.get("lock_minutes", 30))
+    except (TypeError, ValueError):
+        return 30
+    return minutes if minutes > 0 else 30
+
+
+def intervention_of(fired: list[dict], level: int) -> dict:
+    """Nhóm của luật mức 2. Không đổi luật nào được khớp."""
+    level2 = [rule for rule in fired if int(rule.get("level") or 0) == 2]
+    seen = {str(rule.get("group")) for rule in level2 if rule.get("group")}
+    groups = [name for name in GROUP_ORDER if name in seen]
+    strengthened = len(groups) >= 2
+    hangup = any(bool(rule.get("needs_call")) for rule in level2)
+    headline = ""
+    for rule in level2:
+        text = HEADLINES.get(str(rule.get("id")))
+        if text:
+            headline = text
+            break
+    if not headline and level >= 1:
+        headline = LEVEL1_HEADLINE
+    return {
+        "groups_fired": groups,
+        "strengthened": strengthened,
+        "continue_requires_hangup": hangup,
+        "lock_minutes": lock_minutes_setting() if strengthened else 0,
+        "headline": headline,
+    }
+
+
 @dataclass
 class Outcome:
     level: int
@@ -161,6 +208,12 @@ class Outcome:
     score_ms: float
     behaviour_score: float | None = None
     behaviour_p_rarity: float | None = None
+    groups_fired: list[str] = field(default_factory=list)
+    strengthened: bool = False
+    continue_requires_hangup: bool = False
+    lock_minutes: int = 0
+    lock_until: datetime | None = None
+    headline: str = ""
 
     @property
     def evidence_card(self) -> dict:
@@ -777,6 +830,8 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
     if behaviour is not None:
         behaviour_score = behaviour.score
         behaviour_p = behaviour.p_rarity
+    view = intervention_of(fired, level)
+    lock_until = clock + timedelta(minutes=view["lock_minutes"]) if view["lock_minutes"] else None
     return Outcome(
         level=level,
         rules_fired=[rule["id"] for rule in fired],
@@ -794,6 +849,12 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
         score_ms=elapsed_ms,
         behaviour_score=behaviour_score,
         behaviour_p_rarity=behaviour_p,
+        groups_fired=view["groups_fired"],
+        strengthened=view["strengthened"],
+        continue_requires_hangup=view["continue_requires_hangup"],
+        lock_minutes=view["lock_minutes"],
+        lock_until=lock_until,
+        headline=view["headline"],
     )
 
 

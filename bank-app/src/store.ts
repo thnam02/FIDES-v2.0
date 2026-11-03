@@ -21,6 +21,12 @@ type Outcome = {
   payeeName: string
   amount: number
   experiment?: boolean
+  headline?: string
+  groupsFired?: string[]
+  strengthened?: boolean
+  continueRequiresHangup?: boolean
+  lockUntil?: string | null
+  hotlineUnlocked?: boolean
 }
 
 export type EntryDetail = "paste" | "image_capture" | "image_upload"

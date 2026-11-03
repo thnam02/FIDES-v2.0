@@ -5,6 +5,11 @@ description: >
   Tín hiệu ngữ cảnh là trần: không bao giờ đưa mức lên trên 1. Không phải sàn.
   Chỉ cuộc gọi và người nhận mới nâng lên 1, và chỉ khi chưa có luật mức 2.
 
+# Can thiệp sau khi luật đã khớp. Không đổi ngưỡng phát hiện.
+interventions:
+  lock_minutes: 30
+  hotline: "1900 54 54 13"
+
 thresholds:
   model_p_high:
     value: 0.8125

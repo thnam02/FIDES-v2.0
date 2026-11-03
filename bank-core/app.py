@@ -18,6 +18,7 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from clock import ICT, DemoClock
+from enforce import block_proceed, flags_from_decision, rejection_choice
 from engine.common.hashing import account_hash, require_key
 from engine.decide import REASONS
 from engine.policy import actions_for
@@ -491,6 +492,7 @@ class RespondIn(BaseModel):
     hung_up: bool | None = None
     proceed: bool | None = None
     cancel: bool | None = None
+    call: CallIn | None = None
 
 
 class ProductIn(BaseModel):
@@ -517,6 +519,7 @@ class GuardianIn(BaseModel):
 class ChoiceIn(BaseModel):
     choice: Literal["pause", "cancel", "continue", "abandoned"]
     response_ms: int
+    call: CallIn | None = None
 
 
 class PersonaIn(BaseModel):
@@ -1177,12 +1180,14 @@ def transfer(
         else:
             debit(conn, body.from_account, body.amount, now)
             status = "done" if experiment is not None else status_of(level, funds, False)
+        _ensure_intervention(conn)
+        stored_flags = flags_from_decision(decided, now)
         conn.execute(
             """
             INSERT INTO bank.transfers
             (id, from_account, to_account, amount, purpose_text, decision_id, level, funds_status, status,
-             hold_until, countdown_until, gate, hung_up, posted, actions, reasons, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,false,%s::jsonb,%s::jsonb,%s)
+             hold_until, countdown_until, gate, hung_up, posted, actions, reasons, created_at, intervention)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,false,%s::jsonb,%s::jsonb,%s,%s::jsonb)
             """,
             (
                 transfer_id,
@@ -1200,6 +1205,7 @@ def transfer(
                 json.dumps(decided.get("actions") or []),
                 json.dumps(decided.get("reasons") or []),
                 now,
+                json.dumps(stored_flags, ensure_ascii=False),
             ),
         )
         if not waiting:
@@ -1298,6 +1304,24 @@ def _take_replay(key: str, now: datetime) -> tuple[dict | None, str | None]:
         decision_id = row["decision_id"] if state == "expired_now" else None
         conn.commit()
         return None, decision_id
+
+
+def _ensure_intervention(conn) -> None:
+    conn.execute("ALTER TABLE bank.transfers ADD COLUMN IF NOT EXISTS intervention jsonb")
+
+
+def _load_flags(transfer) -> dict:
+    if transfer is None:
+        return {}
+    try:
+        raw = transfer["intervention"]
+    except (KeyError, IndexError):
+        return {}
+    if not raw:
+        return {}
+    if isinstance(raw, str):
+        return json.loads(raw)
+    return dict(raw)
 
 
 def log_choice(decision_id: str | None, choice: str, response_ms: int) -> None:
@@ -1442,6 +1466,12 @@ def _decision_payload(level: int, decided: dict) -> dict:
         "rules_fired": list(decided.get("rules_fired") or []),
         "evidence_card": card,
         "intervention": intervention,
+        "groups_fired": list(decided.get("groups_fired") or []),
+        "strengthened": bool(decided.get("strengthened")),
+        "continue_requires_hangup": bool(decided.get("continue_requires_hangup")),
+        "lock_minutes": int(decided.get("lock_minutes") or 0),
+        "lock_until": decided.get("lock_until"),
+        "headline": decided.get("headline") or "",
     }
 
 
@@ -1536,17 +1566,53 @@ def store_experiment_session(body: ExperimentSessionIn) -> dict:
     return {"stored": True}
 
 
+@app.post("/transfer/{transfer_id}/hotline")
+def verify_hotline(transfer_id: str) -> dict:
+    """Tổng đài đã gọi lại đúng số và xác nhận lệnh. Demo cũng gọi đường này."""
+    with connect() as conn:
+        _ensure_intervention(conn)
+        transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s FOR UPDATE", (transfer_id,)).fetchone()
+        if transfer is None:
+            raise HTTPException(404, "không có lệnh")
+        flags = _load_flags(transfer)
+        flags["hotline_verified"] = True
+        conn.execute(
+            "UPDATE bank.transfers SET intervention = %s::jsonb WHERE id = %s",
+            (json.dumps(flags, ensure_ascii=False), transfer_id),
+        )
+        conn.commit()
+    log_choice(transfer["decision_id"], "hotline", 0)
+    return {"transfer_id": transfer_id, "decision_id": transfer["decision_id"], "unlocked": True}
+
+
 @app.post("/transfer/{transfer_id}/respond")
 def respond(transfer_id: str, body: RespondIn) -> dict:
     now = CLOCK.now()
     with connect() as conn:
+        _ensure_intervention(conn)
         transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s", (transfer_id,)).fetchone()
         if transfer is None:
             raise HTTPException(404, "không có lệnh")
-        payload = {key: value for key, value in body.model_dump().items() if value is not None}
+        flags = _load_flags(transfer)
+        if body.cancel:
+            log_choice(transfer["decision_id"], "cancel", 0)
+        elif body.guardian_confirm:
+            if not _guardian_consented(conn, transfer["from_account"]):
+                raise HTTPException(409, "Chưa lưu sự đồng ý của người giám hộ.")
+            log_choice(transfer["decision_id"], "guardian_confirm", 0)
+        elif body.proceed:
+            call_state = body.call.state if body.call is not None else None
+            reason = block_proceed(flags, now, call_state, bool(flags.get("hotline_verified")))
+            if reason:
+                log_choice(transfer["decision_id"], rejection_choice(reason), 0)
+                raise HTTPException(409, reason)
+            log_choice(transfer["decision_id"], "proceed", 0)
+        payload = {key: value for key, value in body.model_dump().items() if value is not None and key != "call"}
         payload["decision_id"] = transfer["decision_id"]
         payload["ts"] = now.isoformat()
         answered = engine_post("/respond", payload)
+        if body.proceed:
+            answered["funds_status"] = "released"
         previous = transfer["funds_status"]
         funds = answered["funds_status"]
         level = numeric_level(answered["level"])
@@ -1749,7 +1815,14 @@ def _guardian_consented(conn, account_id: str) -> bool:
 
 @app.get("/config")
 def bank_config() -> dict:
-    return {"purpose_amount_vnd": PURPOSE_AMOUNT_VND}
+    from engine.policy.v24 import load_policy
+
+    text = str((load_policy().get("interventions") or {}).get("hotline") or "1900 54 54 13")
+    return {
+        "purpose_amount_vnd": PURPOSE_AMOUNT_VND,
+        "hotline": text,
+        "hotline_tel": "".join(ch for ch in text if ch.isdigit()),
+    }
 
 
 @app.post("/decisions/{decision_id}/choice")
@@ -1758,6 +1831,7 @@ def record_choice(decision_id: str, body: ChoiceIn) -> dict:
     if body.response_ms < 0:
         raise HTTPException(400, "response_ms không hợp lệ")
     with connect() as conn:
+        _ensure_intervention(conn)
         transfer = conn.execute("SELECT * FROM bank.transfers WHERE decision_id = %s FOR UPDATE", (decision_id,)).fetchone()
         if transfer is None:
             raise HTTPException(404, "không có quyết định")
@@ -1770,6 +1844,12 @@ def record_choice(decision_id: str, body: ChoiceIn) -> dict:
         raise HTTPException(409, EXPIRED_DETAIL)
     if transfer["status"] == "awaiting_confirmation":
         raise HTTPException(409, "lệnh mức 1 đang chờ xác nhận")
+    if body.choice == "continue":
+        call_state = body.call.state if body.call is not None else None
+        reason = block_proceed(_load_flags(transfer), now, call_state, bool(_load_flags(transfer).get("hotline_verified")))
+        if reason:
+            log_choice(decision_id, rejection_choice(reason), body.response_ms)
+            raise HTTPException(409, reason)
     if body.choice == "abandoned":
         log_choice(decision_id, body.choice, body.response_ms)
         return {

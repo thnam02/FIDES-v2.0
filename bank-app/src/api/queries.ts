@@ -170,7 +170,7 @@ export function usePurposePolicy() {
     queryFn: async () => {
       const response = await fetch(`${BANK_URL}/config`)
       if (!response.ok) throw new Error("config")
-      return (await response.json()) as { purpose_amount_vnd: number }
+      return (await response.json()) as { purpose_amount_vnd: number; hotline?: string; hotline_tel?: string }
     },
   })
 }

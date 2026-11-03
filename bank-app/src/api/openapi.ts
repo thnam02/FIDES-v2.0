@@ -899,6 +899,12 @@ export interface components {
             rules_fired?: string[];
             evidence_card?: components["schemas"]["EvidenceCard"];
             intervention?: components["schemas"]["Intervention"];
+            groups_fired?: string[];
+            strengthened?: boolean;
+            continue_requires_hangup?: boolean;
+            lock_minutes?: number;
+            lock_until?: string | null;
+            headline?: string;
         };
         TransferResponse: {
             transfer_id: string;
@@ -914,6 +920,7 @@ export interface components {
             hung_up?: boolean;
             proceed?: boolean;
             cancel?: boolean;
+            call?: components["schemas"]["CallContext"];
         };
         TransferRespondResponse: {
             transfer_id: string;

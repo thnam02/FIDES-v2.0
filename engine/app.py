@@ -373,6 +373,12 @@ def decide(body: dict) -> tuple[int, dict]:
         "hold_until": iso(hold),
         "countdown_until": None,
         "funds_status": funds,
+        "groups_fired": outcome.groups_fired,
+        "strengthened": outcome.strengthened,
+        "continue_requires_hangup": outcome.continue_requires_hangup,
+        "lock_minutes": outcome.lock_minutes,
+        "lock_until": iso(outcome.lock_until),
+        "headline": outcome.headline,
     }
     stored = {
         "decision_id": body["decision_id"],

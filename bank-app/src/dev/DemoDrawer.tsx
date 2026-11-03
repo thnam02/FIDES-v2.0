@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react"
 import { Modal, Pressable, Text, View } from "react-native"
 import { FidesSession } from "fides-sdk"
 
+import { BANK_URL } from "../api/client"
 import { DEMO, useBank } from "../store"
 import { colors } from "../ui/parts"
 
@@ -50,6 +51,19 @@ export function DemoControls() {
       <Pressable testID="call-end" accessibilityRole="button" onPress={() => { FidesSession.setSimulatedCall(false, false); setStrangerCall(false); closeDemoDrawer() }} style={{ minHeight: 44, justifyContent: "center" }}>
         <Text style={{ color: colors.deep, fontWeight: "700" }}>Demo: kết thúc cuộc gọi</Text>
       </Pressable>
+      {DEMO ? (
+        <Pressable testID="demo-hotline" accessibilityRole="button" onPress={() => {
+          const current = useBank.getState().outcome
+          if (!current?.transferId) return
+          void fetch(`${BANK_URL}/transfer/${current.transferId}/hotline`, { method: "POST" }).then((response) => {
+            if (!response.ok) return
+            useBank.getState().setOutcome({ ...current, hotlineUnlocked: true })
+            closeDemoDrawer()
+          })
+        }} style={{ minHeight: 44, justifyContent: "center" }}>
+          <Text style={{ color: colors.deep, fontWeight: "700" }}>Demo: tổng đài xác nhận</Text>
+        </Pressable>
+      ) : null}
     </View>
   )
 }

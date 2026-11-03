@@ -1608,6 +1608,28 @@ components:
               format: date-time
             - type: "null"
           description: Hung_up ở high cộng 10 phút. Cuộc gọi mới tính lại. Proceed trước mốc này không nhả tiền.
+        groups_fired:
+          type: array
+          items:
+            type: string
+            enum: [A, B, C, D]
+          description: Nhóm của các luật mức 2 đã khớp. Hai nhóm trở lên là strengthened.
+        strengthened:
+          type: boolean
+        continue_requires_hangup:
+          type: boolean
+          description: Một luật mức 2 đã khớp có điều kiện cuộc gọi.
+        lock_minutes:
+          type: integer
+          description: Số phút khoá Tiếp tục khi strengthened. Còn lại là 0.
+        lock_until:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        headline:
+          type: string
+          description: Câu tiếng Việt của luật mức 2 đứng trước, hoặc câu mặc định mức 1.
     UserChoice:
       type: string
       enum: [pause, cancel, continue, abandoned]
@@ -1843,6 +1865,23 @@ components:
           $ref: "#/components/schemas/EvidenceCard"
         intervention:
           $ref: "#/components/schemas/Intervention"
+        groups_fired:
+          type: array
+          items:
+            type: string
+        strengthened:
+          type: boolean
+        continue_requires_hangup:
+          type: boolean
+        lock_minutes:
+          type: integer
+        lock_until:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        headline:
+          type: string
     TransferResponse:
       type: object
       required: [transfer_id, status, funds_status, hold_until, decision]
@@ -1874,6 +1913,9 @@ components:
           type: boolean
         cancel:
           type: boolean
+        call:
+          $ref: "#/components/schemas/CallContext"
+          description: Trạng thái cuộc gọi gửi kèm proceed. active thì máy chủ từ chối nếu luật mức 2 yêu cầu cúp máy.
     TransferRespondResponse:
       type: object
       required: [transfer_id, status, level, funds_status, gate, hold_until, countdown_until]
