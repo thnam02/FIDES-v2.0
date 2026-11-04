@@ -23,6 +23,9 @@ describe("computeFeatures", () => {
       background_count: 0,
       background_total_ms: 0,
       session_duration_ms: 0,
+      payee_burst_count: 0,
+      payee_mean_burst_len: 0,
+      payee_inter_burst_gap_median_ms: 0,
     })
   })
 
@@ -114,7 +117,7 @@ describe("computeFeatures", () => {
       limit,
     )
     expect(back.backtrack_count).toBe(1)
-    expect(back.screen_revisit_count).toBe(1)
+    expect(back.screen_revisit_count).toBe(0)
 
     const again = computeFeatures(
       [event("screen_enter", 0, { screen: "amount" }), event("screen_enter", 10, { screen: "amount" })],
@@ -122,6 +125,34 @@ describe("computeFeatures", () => {
     )
     expect(again.backtrack_count).toBe(0)
     expect(again.screen_revisit_count).toBe(1)
+  })
+
+  it("cụm số tài khoản tách ở 1000 ms, một phím là cụm dài 1", () => {
+    const features = computeFeatures(
+      [
+        event("key_tick", 0, { payee: true }),
+        event("key_tick", 200, { payee: true }),
+        event("key_tick", 400, { payee: true }),
+        event("key_tick", 2500, { payee: true }),
+        event("key_tick", 2700, { payee: true }),
+        event("key_tick", 5000, { payee: true }),
+        event("key_tick", 5200),
+      ],
+      limit,
+    )
+    expect(features.payee_burst_count).toBe(3)
+    expect(features.payee_mean_burst_len).toBe(2)
+    expect(features.payee_inter_burst_gap_median_ms).toBe(2200)
+    expect(features.burst_count).toBeGreaterThan(0)
+    const alone = computeFeatures([event("key_tick", 0, { payee: true })], limit)
+    expect(alone.payee_burst_count).toBe(1)
+    expect(alone.payee_mean_burst_len).toBe(1)
+    expect(alone.payee_inter_burst_gap_median_ms).toBe(0)
+    const wide = computeFeatures(
+      [event("key_tick", 0, { payee: true }), event("key_tick", 1000, { payee: true })],
+      limit,
+    )
+    expect(wide.payee_burst_count).toBe(2)
   })
 
   it("ngưỡng burst đổi được", () => {
@@ -144,12 +175,15 @@ describe("SessionRecorder", () => {
     expect(snapshot.raw_events?.map((item) => item.type)).toEqual(["key_tick", "paste", "confirm_tap"])
     expect(snapshot.raw_events?.every((item) => !("field" in item) || item.field === undefined)).toBe(true)
     expect(JSON.stringify(snapshot.raw_events)).not.toContain("A0002119")
+    expect(snapshot.raw_events?.[0].payee).toBe(true)
+    expect(snapshot.behaviour_features.payee_burst_count).toBe(1)
     expect(recorder.isOpen()).toBe(false)
     recorder.start("qr")
     const next = recorder.end()
     expect(next.raw_events).toBeUndefined()
     expect(next.task_type).toBe("qr")
     expect(next.behaviour_features.session_duration_ms).toBe(0)
+    expect(next.behaviour_features.payee_burst_count).toBeUndefined()
   })
 
   it("không giữ mốc khi chưa đồng ý", () => {
@@ -170,6 +204,8 @@ describe("SessionRecorder", () => {
     recorder.note({ type: "paste", payee: true })
     recorder.note({ type: "paste" })
     recorder.note({ type: "saved_payee_pick" })
-    expect(recorder.end().task_type).toBe("saved_payee")
+    const saved = recorder.end()
+    expect(saved.task_type).toBe("saved_payee")
+    expect(saved.behaviour_features.payee_burst_count).toBeUndefined()
   })
 })

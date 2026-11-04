@@ -149,6 +149,8 @@ def test_quality_bands_and_gating():
     assert policy["behavioural_baseline"]["min_quality"] == "medium"
     assert policy["behavioural_baseline"]["mad_floor_fraction_of_population"] == 0.5
     assert policy["thresholds"]["behaviour_p_rarity_at_most"]["demo"] is True
+    assert policy["thresholds"]["behaviour_guided_p_at_most"]["demo"] is True
+    assert policy["thresholds"]["behaviour_guided_p_at_most"]["value"] == 0.05
     assert _baseline(0) == "none"
     assert _baseline(2) == "low"
     assert _baseline(3) == "medium"
@@ -180,8 +182,24 @@ def test_quality_bands_and_gating():
             funds_events=[],
         )
     )
-    assert "R_BEHAVIOUR_GUIDED" in guided.rules_fired
-    assert guided.level == 2
+    assert "R_BEHAVIOUR_GUIDED" not in guided.rules_fired
+    assert "R_BEHAVIOUR_ONLY" in guided.rules_fired
+    assert guided.level == 1
+    dictated = evaluate(
+        _facts(
+            call_state="active",
+            new_payee=True,
+            behaviour_p_rarity=0.5,
+            behaviour_guided_p=0.01,
+            same_task_sessions=8,
+            behaviour_guided_group="dictation",
+            p_fraud=0.0,
+            funds_events=[],
+        )
+    )
+    assert "R_BEHAVIOUR_ONLY" not in dictated.rules_fired
+    assert "R_BEHAVIOUR_GUIDED" in dictated.rules_fired
+    assert dictated.level == 2
     simo = evaluate(
         _facts(
             simo_listed=True,
@@ -295,8 +313,93 @@ def test_shipped_reference_is_labelled_synthetic():
     assert len(loaded["scores"]) >= 100
     assert loaded["baseline_n"]
     assert len(loaded["baseline_n"]) == len(loaded["scores"])
+    assert len(loaded["guided_scores"]) == len(loaded["scores"])
     assert loaded["population"]["background_total_ms"]["mad"] > 0
     assert empirical_p(max(loaded["scores"]) + 1, loaded["scores"]) < empirical_p(min(loaded["scores"]), loaded["scores"])
+
+
+def test_review_is_two_sided_and_dictation_is_skipped_off_typed():
+    population = _pop(1400.0, 300.0)
+    fast = score_features(_flat(400.0), [], population, _up(), task_type="new_typed")
+    slow = score_features(_flat(2400.0), [], population, _up(), task_type="new_typed")
+    assert fast.review_direction == "fast"
+    assert slow.review_direction == "slow"
+    assert fast.feature_scores["review_dwell_ms"] > 0
+    assert slow.feature_scores["review_dwell_ms"] > 0
+    typed = _flat(1.0)
+    typed["payee_burst_count"] = 4
+    typed["payee_mean_burst_len"] = 3
+    typed["payee_inter_burst_gap_median_ms"] = 3500
+    directions = _up()
+    directions["payee_mean_burst_len"] = "down"
+    on_typed = score_features(typed, [], population, directions, task_type="new_typed")
+    on_qr = score_features(typed, [], population, directions, task_type="qr")
+    assert "dictation" in on_typed.groups
+    assert "dictation" not in on_qr.groups
+    assert on_qr.top_group != "dictation"
+
+
+def test_guided_score_uses_fast_review_not_the_session_mean():
+    population = _pop(1400.0, 300.0)
+    directions = _up()
+    directions["payee_mean_burst_len"] = "down"
+    slow = _flat(1400.0)
+    slow["review_dwell_ms"] = 4000.0
+    slow["payee_burst_count"] = 4
+    slow["payee_mean_burst_len"] = 3
+    slow["payee_inter_burst_gap_median_ms"] = 3500
+    scored = score_features(slow, [], population, directions, task_type="new_typed")
+    assert scored.review_direction == "slow"
+    assert scored.groups["review"] > scored.groups["dictation"]
+    assert scored.guided_group == "dictation"
+    assert scored.guided_score == scored.groups["dictation"]
+    fast = _flat(1400.0)
+    fast["review_dwell_ms"] = 200.0
+    scored = score_features(fast, [], population, directions, task_type="new_typed")
+    assert scored.review_direction == "fast"
+    assert scored.guided_group == "review"
+    assert scored.guided_score == scored.groups["review"]
+    assert scored.guided_score > scored.score
+
+
+def test_guided_signal_does_not_require_session_rarity():
+    base = dict(
+        call_state="active",
+        new_payee=True,
+        behaviour_p_rarity=0.01,
+        behaviour_guided_p=0.4,
+        same_task_sessions=10,
+        p_fraud=0.0,
+        funds_events=[],
+        task_type="new_typed",
+        behaviour_top_group="rhythm",
+    )
+    rhythm = evaluate(_facts(**base))
+    assert rhythm.level == 1
+    assert "R_BEHAVIOUR_GUIDED" not in rhythm.rules_fired
+    assert "R_BEHAVIOUR_ONLY" in rhythm.rules_fired
+    phrases = {
+        "dictation": "Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho.",
+        "app_switch": "Bạn rời ứng dụng nhiều lần trong lúc chuyển tiền.",
+        "review": "Bạn xác nhận nhanh bất thường so với thường lệ.",
+    }
+    for group, phrase in phrases.items():
+        direction = "fast" if group == "review" else None
+        out = evaluate(
+            _facts(
+                **{
+                    **base,
+                    "behaviour_p_rarity": 0.5,
+                    "behaviour_guided_p": 0.01,
+                    "behaviour_guided_group": group,
+                    "behaviour_review_direction": direction,
+                }
+            )
+        )
+        assert out.level == 2
+        assert "R_BEHAVIOUR_GUIDED" in out.rules_fired
+        assert "R_BEHAVIOUR_ONLY" not in out.rules_fired
+        assert phrase in out.reasons_vi
 
 
 def test_one_sided_helper_matches_zero_when_the_shift_is_the_other_way():

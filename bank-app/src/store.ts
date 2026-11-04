@@ -7,7 +7,7 @@ type Outcome = {
   decisionId: string
   status: components["schemas"]["TransferStatus"]
   level: components["schemas"]["BankDecision"]["level"]
-  engineLevel: 0 | 1 | 2 | 3
+  engineLevel: 0 | 1 | 2 | 3 | null
   intervention: components["schemas"]["Intervention"]
   actions: string[]
   reasons: components["schemas"]["Reason"][]
@@ -21,6 +21,13 @@ type Outcome = {
   payeeName: string
   amount: number
   experiment?: boolean
+  headline?: string
+  groupsFired?: string[]
+  strengthened?: boolean
+  continueRequiresHangup?: boolean
+  lockUntil?: string | null
+  hotlineUnlocked?: boolean
+  demoNotice?: string | null
 }
 
 export type EntryDetail = "paste" | "image_capture" | "image_upload"

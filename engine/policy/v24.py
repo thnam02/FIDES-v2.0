@@ -1,4 +1,4 @@
-"""Chính sách /decide v2.4. Đọc bank_policy.yaml. Không đổi model, không đọc truth."""
+"""Chính sách /decide v2.5. Đọc bank_policy.yaml. Không đổi model lừa đảo, không đọc truth."""
 
 from __future__ import annotations
 
@@ -41,11 +41,14 @@ SIGNAL_ORDER = (
     "model_p_high",
     "model_p_cost",
     "behaviour_rare",
+    "behaviour_guided",
     "screen_capture_active",
     "device_capability",
     "verified_compromise",
     "recipient_bank_confirmed_mule",
     "recipient_le_confirmed_case",
+    "habit_rare",
+    "habit_money_rare",
 )
 
 
@@ -127,12 +130,107 @@ class Facts:
     p_fraud: float | None = None
     segment: str = "thường"
     behaviour_p_rarity: float | None = None
+    behaviour_guided_p: float | None = None
+    behaviour_top_group: str | None = None
+    behaviour_guided_group: str | None = None
+    behaviour_review_direction: str | None = None
     same_task_sessions: int | None = None
     limit_per_txn: int | None = None
     limit_per_day: int | None = None
     spent_today: int | None = None
     verified: list[dict] = field(default_factory=list)
     user_level_floor: int = 0
+    habit_rare: bool | None = None
+    habit_money_rare: bool | None = None
+    habit_top_group: str | None = None
+    habit_top_feature: str | None = None
+    habit_quality: str | None = None
+    habit_extreme: bool = False
+    payee_account_type: str | None = None
+    payee_holder_name: str | None = None
+    recent_outflows: list[dict] | None = None
+
+
+HEADLINES = {
+    "R_CALL_FUNDS_NEWPAYEE": "Bạn vừa rút tiền tiết kiệm hoặc nhận tiền và đang chuyển cho người lạ trong lúc nghe điện thoại. Đây là cách kẻ giả danh công an thường lừa tiền.",
+    "R_FUNDS_PASSTHROUGH": "Bạn vừa nhận tiền từ nhiều nơi và đang chuyển gần hết cho người lạ. Kẻ lừa đảo thường bảo nạn nhân vay mượn rồi chuyển tiền đi.",
+    "R_CALL_HABIT_NEWPAYEE": "Bạn đang chuyển số tiền lớn khác hẳn thường ngày cho người lạ trong lúc nghe điện thoại.",
+    "R_BEHAVIOUR_GUIDED": "Cách bạn thao tác giống như đang được người khác đọc cho từng bước.",
+    "R_CAPTURE": "Màn hình của bạn đang bị ghi hoặc chia sẻ. Kẻ lừa đảo thường yêu cầu chia sẻ màn hình để hướng dẫn.",
+    "R_RECIPIENT_UNUSUAL": "Tài khoản nhận có dấu hiệu được dùng để nhận tiền lừa đảo.",
+    "R_SIMO": "Tài khoản nhận có dấu hiệu được dùng để nhận tiền lừa đảo.",
+    "R_MODEL_HIGH": "Giao dịch có dấu hiệu rủi ro cao theo mô hình của ngân hàng.",
+    "R_VERIFIED_RECIPIENT": "Tài khoản nhận đã được xác nhận là tài khoản lừa đảo. Ngân hàng đang giữ giao dịch để bảo vệ bạn.",
+}
+LEVEL1_HEADLINE = "Hãy kiểm tra lại trước khi chuyển."
+LEVEL1_HEADLINES = {
+    "R_CALL_NEWPAYEE": "Bạn đang nghe điện thoại và chuyển cho người nhận mới. Nếu có ai đang hướng dẫn bạn chuyển tiền, hãy dừng lại.",
+    "R_HABIT_NEWPAYEE": "Số tiền này lớn hơn nhiều so với mức bạn thường chuyển. Hãy chắc chắn bạn biết người nhận.",
+}
+PURPOSE_HEADLINES = {
+    "authority_request": "Cơ quan nhà nước không bao giờ yêu cầu chuyển tiền để xác minh.",
+    "fee_to_receive": "Không có khoản thưởng hay khoản vay thật nào bắt nộp phí trước để nhận tiền.",
+    "investment": "Đầu tư thật không chuyển vào tài khoản cá nhân. Đây là dấu hiệu thường gặp của lừa đảo đầu tư.",
+}
+EPISODE_HEADLINE = "Bạn vừa có một giao dịch bị tạm dừng vì dấu hiệu lừa đảo. Các giao dịch tiếp theo cũng được kiểm tra kỹ."
+GROUP_ORDER = ("A", "B", "C", "D")
+# A tiền, B thao tác trên máy, C mục đích. D giữ lệnh đó, không mở episode.
+EPISODE_GROUPS = frozenset({"A", "B", "C"})
+
+
+def lock_minutes_setting() -> int:
+    item = load_policy().get("interventions") or {}
+    try:
+        minutes = int(item.get("lock_minutes", 30))
+    except (TypeError, ValueError):
+        return 30
+    return minutes if minutes > 0 else 30
+
+
+def _rule_headline(rule_id: str, purpose: str | None) -> str:
+    if rule_id == "R_PURPOSE_HIGH_RISK":
+        return PURPOSE_HEADLINES.get(str(purpose or ""), "")
+    return HEADLINES.get(rule_id, "")
+
+
+def intervention_of(fired: list[dict], level: int, purpose: str | None = None) -> dict:
+    """Nhóm của luật mức 2. Không đổi luật nào được khớp."""
+    level2 = [rule for rule in fired if int(rule.get("level") or 0) == 2]
+    seen = {str(rule.get("group")) for rule in level2 if rule.get("group")}
+    groups = [name for name in GROUP_ORDER if name in seen]
+    strengthened = len(groups) >= 2
+    hangup = any(bool(rule.get("needs_call")) for rule in level2)
+    headline = ""
+    for rule in fired:
+        if int(rule.get("level") or 0) < 3:
+            continue
+        text = _rule_headline(str(rule.get("id")), purpose)
+        if text:
+            headline = text
+            break
+    if not headline:
+        for rule in level2:
+            text = _rule_headline(str(rule.get("id")), purpose)
+            if text:
+                headline = text
+                break
+    if not headline and level >= 1:
+        for rule in fired:
+            if int(rule.get("level") or 0) != 1:
+                continue
+            text = LEVEL1_HEADLINES.get(str(rule.get("id")))
+            if text:
+                headline = text
+                break
+        if not headline:
+            headline = LEVEL1_HEADLINE
+    return {
+        "groups_fired": groups,
+        "strengthened": strengthened,
+        "continue_requires_hangup": hangup,
+        "lock_minutes": lock_minutes_setting() if strengthened else 0,
+        "headline": headline,
+    }
 
 
 @dataclass
@@ -153,6 +251,14 @@ class Outcome:
     score_ms: float
     behaviour_score: float | None = None
     behaviour_p_rarity: float | None = None
+    groups_fired: list[str] = field(default_factory=list)
+    strengthened: bool = False
+    continue_requires_hangup: bool = False
+    lock_minutes: int = 0
+    lock_until: datetime | None = None
+    headline: str = ""
+    mobilised_funds: list[dict] = field(default_factory=list)
+    episode_rules: list[str] = field(default_factory=list)
 
     @property
     def evidence_card(self) -> dict:
@@ -163,6 +269,16 @@ class Outcome:
             "episode_id": self.episode_id,
             "behaviour_score": self.behaviour_score,
             "p_rarity": self.behaviour_p_rarity,
+            "episode_rules": list(self.episode_rules),
+            "funds": [
+                {
+                    "kind": item.get("type"),
+                    "amount": int(item.get("amount") or 0),
+                    "channel": item.get("channel"),
+                    "at": item.get("at"),
+                }
+                for item in self.mobilised_funds
+            ],
         }
 
     def reason_rows(self) -> list[dict[str, str]]:
@@ -236,6 +352,7 @@ def _blank() -> dict:
         "expires_at": "",
         "payee": "",
         "funds": [],
+        "rules": [],
         "tallies": [],
         "customer_floor": 0,
         "customer_until": "",
@@ -266,6 +383,12 @@ def _signal(signal_id: str, status: str, tier: str, source: str, observed: datet
     freshness = max(0, int((now - observed).total_seconds()))
     confidence = 1.0 if status == "present" else 0.0
     return Signal(signal_id, status, tier, confidence, source, _stamp(observed), freshness)
+
+
+def _habit_flag(value: bool | None) -> str:
+    if value is None:
+        return "unknown"
+    return "present" if value else "absent"
 
 
 def _tri(present: bool | None) -> str:
@@ -307,7 +430,14 @@ def _fresh_funds(facts: Facts, now: datetime) -> list[dict]:
             continue
         at = _parse(str(raw))
         if now - window <= at <= now:
-            kept.append({"type": kind, "at": _stamp(at), "channel": event["channel"]})
+            kept.append(
+                {
+                    "type": kind,
+                    "at": _stamp(at),
+                    "channel": event["channel"],
+                    "amount": int(event.get("amount") or 0),
+                }
+            )
     return kept
 
 
@@ -334,7 +464,9 @@ def build_signals(facts: Facts, now: datetime) -> tuple[dict[str, Signal], dict[
     purpose = facts.transfer_purpose
     if purpose in {"authority_request", "fee_to_receive"}:
         purpose_status = "present"
-    elif purpose in {"investment", "refund_request", "purchase", "family_friends", "debt_salary", "other"}:
+    elif purpose == "investment":
+        purpose_status = "present" if facts.new_payee is True and _payee_is_personal(facts) else "absent"
+    elif purpose in {"refund_request", "purchase", "family_friends", "debt_salary", "other", "not_asked"}:
         purpose_status = "absent"
     else:
         purpose_status = "unknown"
@@ -358,18 +490,60 @@ def build_signals(facts: Facts, now: datetime) -> tuple[dict[str, Signal], dict[
         "model_p_high": _signal("model_p_high", _model(facts.p_fraud), "suspicious", "model", observed, now),
         "model_p_cost": _signal("model_p_cost", _model_cost(facts), "suspicious", "model", observed, now),
         "behaviour_rare": _signal("behaviour_rare", behaviour, "suspicious", "sdk", observed, now),
+        "behaviour_guided": _signal("behaviour_guided", _behaviour_guided(facts), "suspicious", "sdk", observed, now),
         "screen_capture_active": _signal("screen_capture_active", capture, "suspicious", "device_attestation", observed, now),
         "device_capability": _signal("device_capability", capability, "suspicious", "device_attestation", observed, now),
         "verified_compromise": _signal("verified_compromise", device_verified, "verified", "device_attestation", observed, now),
         "recipient_bank_confirmed_mule": _signal("recipient_bank_confirmed_mule", mule, "verified", "core_banking", observed, now),
         "recipient_le_confirmed_case": _signal("recipient_le_confirmed_case", case, "verified", "core_banking", observed, now),
+        "habit_rare": _signal("habit_rare", _habit_flag(facts.habit_rare), "contextual", "ledger", observed, now),
+        "habit_money_rare": _signal("habit_money_rare", _habit_flag(facts.habit_money_rare), "contextual", "ledger", observed, now),
     }
     flags = {
         "simo_info_rule": _info_rule(facts, signals),
         "simo_with_context": _any_present(signals, load_policy()["simo_context"]),
         "merchant_verified": _tri(facts.merchant_verified),
+        "inflow_passthrough": _inflow_passthrough(facts, funds),
     }
     return signals, flags, funds
+
+
+def _payee_is_personal(facts: Facts) -> bool:
+    """Cùng ngân hàng nhìn account_type. Liên ngân hàng nhìn tên và danh sách công ty đã xác minh."""
+    if facts.merchant_verified is True:
+        return False
+    policy = load_policy()
+    kind = str(facts.payee_account_type or "")
+    if kind in set(policy.get("organisation_account_types") or []):
+        return False
+    name = fold_name(facts.payee_holder_name)
+    if any(marker in name for marker in policy.get("company_markers") or []):
+        return False
+    listed = {fold_name(item) for item in policy.get("verified_companies") or []}
+    if name and name in listed:
+        return False
+    return True
+
+
+def fold_name(text: str | None) -> str:
+    from engine.policy.inflows import fold
+
+    return fold(text)
+
+
+def _inflow_passthrough(facts: Facts, funds: list[dict]) -> str:
+    kinds = set(load_policy().get("inflow_kinds") or [])
+    inflows = [item for item in funds if item.get("type") in kinds and int(item.get("amount") or 0) > 0]
+    if not inflows or facts.new_payee is not True or not _payee_is_personal(facts):
+        return "absent"
+    ratio = float(threshold("inflow_passthrough_ratio"))
+    earlier = facts.recent_outflows or []
+    for event in inflows:
+        opened = _parse(str(event["at"]))
+        spent = sum(int(item.get("amount") or 0) for item in earlier if item.get("at") and _parse(str(item["at"])) >= opened)
+        if spent + int(facts.amount) >= ratio * int(event["amount"]):
+            return "present"
+    return "absent"
 
 
 def _funds_observed(funds: list[dict], now: datetime) -> datetime:
@@ -438,18 +612,31 @@ def _model_cost(facts: Facts) -> str:
     return "present" if facts.p_fraud >= cost_tau(float(facts.amount), facts.segment) else "absent"
 
 
-def _behaviour(facts: Facts) -> str:
-    """Baseline thấp hoặc chưa có thì behaviour_rare là unknown, kể cả khi p đã tính."""
+def _behaviour_ready(facts: Facts) -> bool:
     block = load_policy().get("behavioural_baseline") or {}
     minimum = str(block.get("min_quality") or "medium")
     needed = int(block.get("min_sessions_for_level_2", threshold("behaviour_baseline_medium_sessions")))
     sessions = 0 if facts.same_task_sessions is None else int(facts.same_task_sessions)
     quality = _baseline(facts.same_task_sessions)
-    if sessions < needed or BASELINE_RANK.get(quality, 0) < BASELINE_RANK.get(minimum, 2):
+    return sessions >= needed and BASELINE_RANK.get(quality, 0) >= BASELINE_RANK.get(minimum, 2)
+
+
+def _behaviour(facts: Facts) -> str:
+    """Baseline thấp hoặc chưa có thì behaviour_rare là unknown, kể cả khi p đã tính."""
+    if not _behaviour_ready(facts):
         return "unknown"
     if facts.behaviour_p_rarity is None:
         return "unknown"
     return "present" if facts.behaviour_p_rarity <= float(threshold("behaviour_p_rarity_at_most")) else "absent"
+
+
+def _behaviour_guided(facts: Facts) -> str:
+    """Điểm hướng dẫn ở đuôi 5%. Không cần phiên hiếm theo trung bình sáu nhóm."""
+    if not _behaviour_ready(facts):
+        return "unknown"
+    if facts.behaviour_guided_p is None:
+        return "unknown"
+    return "present" if facts.behaviour_guided_p <= float(threshold("behaviour_guided_p_at_most")) else "absent"
 
 
 def _device(state: str | None) -> tuple[str, str, str]:
@@ -546,6 +733,7 @@ def _expire(doc: dict, now: datetime) -> None:
             doc["floor"] = 0
             doc["payee"] = ""
             doc["funds"] = []
+            doc["rules"] = []
             doc["scope"] = ""
             doc["opened_at"] = ""
             doc["expires_at"] = ""
@@ -554,6 +742,11 @@ def _expire(doc: dict, now: datetime) -> None:
     if doc.get("customer_until") and now >= _parse(doc["customer_until"]):
         doc["customer_floor"] = 0
         doc["customer_until"] = ""
+
+
+def _opens_episode(fired: list[dict]) -> bool:
+    """Nhóm A, B, C mức 2 mở episode 24 giờ. Nhóm D chỉ giữ lệnh hiện tại."""
+    return any(str(rule.get("group") or "") in EPISODE_GROUPS and int(rule.get("level") or 0) == 2 for rule in fired)
 
 
 def _joins(doc: dict, facts: Facts, signals: dict[str, Signal], funds: list[dict], now: datetime) -> bool:
@@ -608,6 +801,11 @@ def _reasons(facts: Facts, rules: list[dict], signals: dict[str, Signal], funds:
             if not signals.get(name) or signals[name].status != "present":
                 continue
             code = contract_code(name, facts.call_state)
+            if name == "behaviour_guided":
+                if BASELINE_RANK.get(baseline, 0) < BASELINE_RANK["medium"]:
+                    continue
+                add(code, _behaviour_phrase(facts, facts.behaviour_guided_group))
+                continue
             if name == "behaviour_rare":
                 if BASELINE_RANK.get(baseline, 0) < BASELINE_RANK["medium"]:
                     continue
@@ -622,6 +820,25 @@ def _reasons(facts: Facts, rules: list[dict], signals: dict[str, Signal], funds:
         if rule["id"] == "R_SIMO":
             add(contract_code("recipient_simo_flag"), SIMO_TEXT)
     return rows
+
+
+def _behaviour_phrase(facts: Facts, group: str | None = None) -> str:
+    top = facts.behaviour_top_group or "" if group is None else group
+    if top == "dictation":
+        return "Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho."
+    if top == "review" and facts.behaviour_review_direction == "fast":
+        return "Bạn xác nhận nhanh bất thường so với thường lệ."
+    if top == "review":
+        return "Bạn xem lại lâu hơn thường lệ."
+    if top == "app_switch":
+        return "Bạn rời ứng dụng nhiều lần trong lúc chuyển tiền."
+    if top == "rhythm":
+        return "Bạn dừng lâu hơn thường lệ giữa các bước."
+    if top == "corrections":
+        return "sửa nhiều hơn thường lệ"
+    if top == "navigation":
+        return "quay lại màn hình nhiều hơn thường lệ"
+    return "Cách thao tác khác với những lần chuyển cùng loại trước đây."
 
 
 def _call_text(facts: Facts) -> str:
@@ -648,6 +865,8 @@ def _reason_text(name: str, facts: Facts, funds: list[dict]) -> str:
             return "Quét mã QR."
         return "Số tài khoản được dán."
     if name == "purpose_high_risk":
+        if facts.transfer_purpose == "investment":
+            return "Mục đích ghi là đầu tư, nhưng người nhận là tài khoản cá nhân mới."
         return "Mục đích chuyển là yêu cầu của cơ quan hoặc phí để nhận tiền."
     if name == "recipient_unusual":
         return "Tài khoản nhận còn mới, có nhiều người chuyển tới, hoặc tiền đi qua rất nhanh."
@@ -661,8 +880,8 @@ def _reason_text(name: str, facts: Facts, funds: list[dict]) -> str:
         if int(facts.amount) >= 10_000_000:
             return f"Số tiền lớn và {base[:1].lower()}{base[1:]}"
         return base
-    if name == "behaviour_rare":
-        return "Cách thao tác khác với những lần chuyển cùng loại trước đây."
+    if name in {"behaviour_rare", "behaviour_guided"}:
+        return _behaviour_phrase(facts)
     if name == "screen_capture_active":
         return "Màn hình đang bị ghi hoặc chiếu."
     if name == "device_capability":
@@ -673,6 +892,12 @@ def _reason_text(name: str, facts: Facts, funds: list[dict]) -> str:
         return "Ngân hàng đã xác nhận tài khoản nhận nằm trong hồ sơ đường dây."
     if name == "recipient_le_confirmed_case":
         return "Cơ quan điều tra đã xác nhận tài khoản nhận."
+    if name in {"habit_rare", "habit_money_rare"}:
+        from engine.features.habit import reason_text
+
+        if name == "habit_money_rare" and facts.habit_extreme:
+            return reason_text("amount", None, extreme=True)
+        return reason_text(facts.habit_top_group, facts.habit_top_feature, extreme=False)
     return ""
 
 
@@ -714,14 +939,14 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
     own = max(rule_level, user_floor)
     level = max(own, episode_floor, customer_floor)
     in_episode = joined
-    if own >= 2 and not joined:
-        broad = _any_present(signals, policy["episode_context"]) == "present"
+    if _opens_episode(fired) and not joined:
         doc["episode_id"] = f"ep-{facts.sender[:12]}-{int(clock.timestamp() * 1000)}-{facts.payee[:8]}"
         doc["opened_at"] = _stamp(clock)
         doc["expires_at"] = _stamp(clock + timedelta(hours=float(threshold("episode_hours"))))
         doc["payee"] = facts.payee
-        doc["funds"] = _funds_keys(funds) if broad else []
-        doc["scope"] = "broad" if broad else "payee"
+        doc["funds"] = _funds_keys(funds)
+        doc["rules"] = [str(rule["id"]) for rule in fired]
+        doc["scope"] = "broad"
         doc["floor"] = level
         in_episode = True
     elif joined:
@@ -755,6 +980,13 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
     if behaviour is not None:
         behaviour_score = behaviour.score
         behaviour_p = behaviour.p_rarity
+    view = intervention_of(fired, level, facts.transfer_purpose)
+    carried = joined and episode_floor >= 2 and level >= 2 and not any(int(rule.get("level") or 0) >= 2 for rule in fired)
+    if carried:
+        view["headline"] = EPISODE_HEADLINE
+        if facts.call_state == "active":
+            view["continue_requires_hangup"] = True
+    lock_until = clock + timedelta(minutes=view["lock_minutes"]) if view["lock_minutes"] else None
     return Outcome(
         level=level,
         rules_fired=[rule["id"] for rule in fired],
@@ -772,6 +1004,14 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
         score_ms=elapsed_ms,
         behaviour_score=behaviour_score,
         behaviour_p_rarity=behaviour_p,
+        groups_fired=view["groups_fired"],
+        strengthened=view["strengthened"],
+        continue_requires_hangup=view["continue_requires_hangup"],
+        lock_minutes=view["lock_minutes"],
+        lock_until=lock_until,
+        headline=view["headline"],
+        mobilised_funds=funds,
+        episode_rules=list(doc.get("rules") or []) if in_episode else [],
     )
 
 
@@ -838,6 +1078,9 @@ def facts_from_row(body: dict, row: dict, probability: float, decided: datetime,
         transfer_purpose=body.get("transfer_purpose"),
         device_state=None if device is None else device.get("state"),
         funds_events=funds,
+        recent_outflows=body.get("recent_outflows") if isinstance(body.get("recent_outflows"), list) else None,
+        payee_account_type=None if body.get("payee_account_type") is None else str(body.get("payee_account_type")),
+        payee_holder_name=None if body.get("payee_holder_name") is None else str(body.get("payee_holder_name")),
         new_payee=_opt_bool(row, "new_payee"),
         payee_age_days=_opt_float(row, "payee_account_age_days"),
         distinct_senders_7d=_opt_float(row, "distinct_senders_7d"),

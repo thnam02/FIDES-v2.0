@@ -71,10 +71,36 @@ def _ba_man(ts: datetime, call: str = "active", payee: str = PAYEE) -> Facts:
 
 def test_policy_file_records_provenance():
     policy = load_policy()
-    assert policy["version"] == "2.4.0"
+    assert policy["version"] == "2.5.0"
+    habit = {"habit_score_above", "habit_profile_above"}
+    inflows = {
+        "inflow_multiple",
+        "inflow_min_vnd",
+        "inflow_passthrough_ratio",
+        "inflow_history_days",
+        "recurring_amount_within",
+        "recurring_month_days",
+        "recurring_gap_slack_days",
+    }
     for name, item in policy["thresholds"].items():
+        if name in habit:
+            assert "98th percentile" in item["provenance"], name
+            continue
+        if name in inflows:
+            assert item["provenance"].startswith("v2.5 funds inflows"), name
+            continue
         assert item["provenance"] == "chosen on simulated data", name
     assert policy["thresholds"]["model_p_high"]["value"] == 0.8125
+    groups = {rule["id"]: rule.get("group") for rule in policy["rules"] if int(rule["level"]) >= 2}
+    assert groups["R_CALL_FUNDS_NEWPAYEE"] == "A"
+    assert groups["R_FUNDS_PASSTHROUGH"] == "A"
+    assert groups["R_CALL_HABIT_NEWPAYEE"] == "A"
+    assert groups["R_BEHAVIOUR_GUIDED"] == "B"
+    assert groups["R_CAPTURE"] == "B"
+    assert groups["R_PURPOSE_HIGH_RISK"] == "C"
+    assert groups["R_RECIPIENT_UNUSUAL"] == "D"
+    assert groups["R_SIMO"] == "D"
+    assert groups["R_MODEL_HIGH"] == "D"
 
 
 def _signal(out, name: str):
@@ -216,6 +242,7 @@ def test_simo_info_rule_does_not_lower_a_verified_mule():
     assert mule.intervention == "security_workflow"
     assert "R_VERIFIED_RECIPIENT" in mule.rules_fired
     assert "R_SIMO_KNOWN" in mule.rules_fired
+    assert mule.headline == "Tài khoản nhận đã được xác nhận là tài khoản lừa đảo. Ngân hàng đang giữ giao dịch để bảo vệ bạn."
 
 
 def test_simo_with_active_call_is_level_2():
@@ -283,52 +310,8 @@ def test_merchant_with_many_senders_and_no_passthrough_is_not_unusual():
     assert "R_RECIPIENT_UNUSUAL" in young.rules_fired
 
 
-def test_recipient_only_holds_the_same_payee_and_not_the_next():
-    state = MemoryState()
-    sender = "7" * 64
-    first_payee = "8" * 64
-    opened = evaluate(
-        _facts(
-            sender=sender,
-            payee=first_payee,
-            ts=_at(9),
-            new_payee=True,
-            task_type="new_typed",
-            passthrough_24h=0.96,
-            distinct_senders_7d=7,
-            payee_age_days=800,
-            merchant_verified=False,
-            call_state="none",
-            funds_events=[],
-            transfer_purpose="purchase",
-            device_state="none",
-            p_fraud=0.0,
-        ),
-        state,
-    )
-    assert opened.level == 2
-    assert "R_RECIPIENT_UNUSUAL" in opened.rules_fired
-    same = evaluate(
-        _facts(
-            sender=sender,
-            payee=first_payee,
-            ts=_at(10),
-            new_payee=False,
-            task_type="saved_payee",
-            call_state="none",
-            funds_events=[],
-            transfer_purpose="purchase",
-            p_fraud=0.0,
-            passthrough_24h=0.1,
-            distinct_senders_7d=1,
-            payee_age_days=800,
-            merchant_verified=False,
-        ),
-        state,
-    )
-    assert same.level == 2
-    assert same.episode_id == opened.episode_id
-    other = evaluate(
+def _next_new_payee(state: MemoryState, sender: str):
+    return evaluate(
         _facts(
             sender=sender,
             payee="6" * 64,
@@ -346,8 +329,123 @@ def test_recipient_only_holds_the_same_payee_and_not_the_next():
         ),
         state,
     )
-    assert other.level < 2
-    assert other.episode_id == ""
+
+
+def test_group_d_holds_the_transfer_and_does_not_open_an_episode():
+    """R_RECIPIENT_UNUSUAL, R_SIMO và R_MODEL_HIGH giữ lệnh này, không sàn lệnh sau."""
+    unusual_state = MemoryState()
+    sender = "7" * 64
+    unusual = evaluate(
+        _facts(
+            sender=sender,
+            payee="8" * 64,
+            ts=_at(9),
+            new_payee=True,
+            task_type="new_typed",
+            passthrough_24h=0.96,
+            distinct_senders_7d=7,
+            payee_age_days=800,
+            merchant_verified=False,
+            call_state="none",
+            funds_events=[],
+            transfer_purpose="purchase",
+            device_state="none",
+            p_fraud=0.0,
+        ),
+        unusual_state,
+    )
+    assert unusual.level == 2
+    assert unusual.funds_status == "held"
+    assert "R_RECIPIENT_UNUSUAL" in unusual.rules_fired
+    assert unusual.groups_fired == ["D"]
+    assert unusual.episode_id == ""
+    later = _next_new_payee(unusual_state, sender)
+    assert later.level < 2
+    assert later.episode_id == ""
+
+    simo_state = MemoryState()
+    simo = evaluate(
+        _facts(
+            sender="a" * 64,
+            payee="b" * 64,
+            ts=_at(9),
+            simo_listed=True,
+            prior_payments=0,
+            first_days_before_listing=0,
+            call_state="active",
+            new_payee=True,
+            task_type="new_typed",
+            p_fraud=0.0,
+            funds_events=[],
+        ),
+        simo_state,
+    )
+    assert simo.level == 2
+    assert "R_SIMO" in simo.rules_fired
+    assert "A" not in simo.groups_fired
+    assert simo.episode_id == ""
+    assert _next_new_payee(simo_state, "a" * 64).episode_id == ""
+
+    model_state = MemoryState()
+    model = evaluate(
+        _facts(sender="c" * 64, payee="d" * 64, ts=_at(9), p_fraud=0.8125, call_state="none", new_payee=False),
+        model_state,
+    )
+    assert model.level == 2
+    assert "R_MODEL_HIGH" in model.rules_fired
+    assert model.groups_fired == ["D"]
+    assert model.funds_status == "held"
+    assert model.episode_id == ""
+    assert _next_new_payee(model_state, "c" * 64).level < 2
+
+
+def test_groups_a_b_and_c_open_a_day_long_episode():
+    state = MemoryState()
+    sender = "e" * 64
+    opened = evaluate(
+        _facts(
+            sender=sender,
+            payee="f" * 64,
+            ts=_at(9),
+            call_state="active",
+            new_payee=True,
+            task_type="new_typed",
+            behaviour_p_rarity=0.5,
+            behaviour_guided_p=0.01,
+            behaviour_guided_group="dictation",
+            same_task_sessions=8,
+            p_fraud=0.0,
+            funds_events=[],
+            transfer_purpose="purchase",
+        ),
+        state,
+    )
+    assert opened.level == 2
+    assert opened.groups_fired == ["B"]
+    assert opened.episode_id != ""
+    nxt = _next_new_payee(state, sender)
+    assert nxt.level == 2
+    assert nxt.episode_id == opened.episode_id
+    assert nxt.rules_fired == []
+
+    purpose_state = MemoryState()
+    purpose = evaluate(
+        _facts(
+            sender="9" * 64,
+            ts=_at(9),
+            new_payee=True,
+            task_type="new_typed",
+            transfer_purpose="authority_request",
+            call_state="none",
+            p_fraud=0.0,
+            funds_events=[],
+        ),
+        purpose_state,
+    )
+    assert purpose.level == 2
+    assert purpose.groups_fired == ["C"]
+    assert purpose.episode_id != ""
+    assert _next_new_payee(purpose_state, "9" * 64).episode_id == purpose.episode_id
 
 
 def test_simo_unknown_history_is_not_treated_as_absent():

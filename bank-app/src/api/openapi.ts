@@ -219,7 +219,7 @@ export interface paths {
         put?: never;
         /**
          * Tạo lệnh chuyển
-         * @description App không gửi ts. Bank-core đóng dấu đồng hồ demo, băm số tài khoản bằng HMAC-SHA256 rồi gọi POST /decide trước khi trừ tiền. Mức 0 trừ và hoàn tất. Mức 1 tạo awaiting_confirmation, chưa trừ, intervention reminder. Mức 2 và 3 trừ sau khi đã có quyết định rồi giữ như trước. none, info và banner cho đi sau khi khách xác nhận mức 1. Người nhận simo_listed được ít nhất banner, trừ khi người gửi đã chuyển cho người đó từ 3 lần trở lên, lần đầu cách lúc liệt kê ít nhất 60 ngày, và không có họ thao túng: lúc đó chỉ là ghi chú info. medium giữ 30 phút. high giữ 24 giờ và chặn cho đến khi cúp máy. Header Idempotency-Key trả lại đúng lệnh đã tạo, không ghi nợ lần hai. /decide hết 300 ms hoặc lỗi thì chuyển bình thường và ghi log engine_unavailable. Từ 50 triệu tới người nhận mới thì vẫn hiện banner. Thiếu device thì engine dùng profile basic.
+         * @description App không gửi ts. Bank-core đóng dấu đồng hồ demo, băm số tài khoản bằng HMAC-SHA256 rồi gọi POST /decide trước khi trừ tiền. Mức 0 trừ và hoàn tất. Mức 1 tạo awaiting_confirmation, chưa trừ, intervention reminder. Mức 2 và 3 trừ sau khi đã có quyết định rồi giữ như trước. none, info và banner cho đi sau khi khách xác nhận mức 1. Người nhận simo_listed được ít nhất banner, trừ khi người gửi đã chuyển cho người đó từ 3 lần trở lên, lần đầu cách lúc liệt kê ít nhất 60 ngày, và không có họ thao túng: lúc đó chỉ là ghi chú info. medium giữ 30 phút. high giữ 24 giờ và chặn cho đến khi cúp máy. Header Idempotency-Key trả lại đúng lệnh đã tạo, không ghi nợ lần hai. /decide hết 300 ms hoặc lỗi thì lệnh là unscored, không bao giờ mức 0, và ghi log engine_unavailable. Người nhận đã lưu hoặc đã từng ghi sổ thì đi tiếp. Người nhận mới hiện tờ mức 1 và chưa ghi vào sổ người nhận. Thiếu device thì engine dùng profile basic.
          *
          */
         post: operations["createTransfer"];
@@ -539,6 +539,10 @@ export interface components {
             background_count: number;
             background_total_ms: number;
             session_duration_ms: number;
+            /** Chỉ khi gõ số tài khoản. Vắng nghĩa là không biết. */
+            payee_burst_count?: number;
+            payee_mean_burst_len?: number;
+            payee_inter_burst_gap_median_ms?: number;
         };
         /**
          * @description Mục đích khách chọn, hoặc not_asked khi app chưa hỏi. Engine đọc.
@@ -887,10 +891,10 @@ export interface components {
         };
         BankDecision: {
             /**
-             * @description 0 proceed, 1 banner, 2 three-button verification, 3 security workflow.
-             * @enum {integer}
+             * @description 0 proceed, 1 banner, 2 three-button verification, 3 security workflow. null khi chưa chấm được và người nhận đã quen.
              */
-            level: 0 | 1 | 2 | 3;
+            level: 0 | 1 | 2 | 3 | null;
+            unscored?: boolean;
             actions: string[];
             reasons: components["schemas"]["Reason"][];
             /** @description Cùng danh sách trên /decide. */
@@ -899,6 +903,12 @@ export interface components {
             rules_fired?: string[];
             evidence_card?: components["schemas"]["EvidenceCard"];
             intervention?: components["schemas"]["Intervention"];
+            groups_fired?: string[];
+            strengthened?: boolean;
+            continue_requires_hangup?: boolean;
+            lock_minutes?: number;
+            lock_until?: string | null;
+            headline?: string;
         };
         TransferResponse: {
             transfer_id: string;
@@ -914,6 +924,7 @@ export interface components {
             hung_up?: boolean;
             proceed?: boolean;
             cancel?: boolean;
+            call?: components["schemas"]["CallContext"];
         };
         TransferRespondResponse: {
             transfer_id: string;

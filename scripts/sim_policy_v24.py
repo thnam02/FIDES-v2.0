@@ -20,6 +20,7 @@ FIDES = REPO / "fides"
 SIM = REPO / "fides-sim"
 sys.path[:0] = [str(FIDES), str(REPO)]
 
+from engine.features.habit import score_sessions
 from engine.policy.v24 import STRING_LEVEL, Facts, MemoryState, evaluate, load_policy, threshold
 from eval.decision import isotonic_apply, shift_rate, with_response
 from eval.model_v21 import _matrix, load_profile, prepare
@@ -34,6 +35,7 @@ LEVEL1_RULES = (
     "R_SIMO_ALONE",
     "R_DEVICE_CAPABILITY",
     "R_BEHAVIOUR_ONLY",
+    "R_HABIT_NEWPAYEE",
 )
 
 
@@ -82,6 +84,22 @@ def _task(pasted: bool, new_payee: bool) -> str:
     return "saved_payee"
 
 
+def _missing(value) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _yes(row: pd.Series, name: str):
+    value = row.get(name) if hasattr(row, "get") else None
+    if _missing(value):
+        return None
+    return bool(value)
+
+
 def _opt(value) -> float | None:
     if value is None or (isinstance(value, float) and value != value):
         return None
@@ -113,6 +131,15 @@ def _facts(row: pd.Series, probability: float) -> Facts:
     except (TypeError, ValueError):
         limit_per_txn = None
     payee = str(row.get("to_account") or row["session_id"])
+    extra = row.get("extra_funds")
+    if isinstance(extra, list):
+        funds = list(extra) + funds
+    sessions = row.get("same_task_sessions")
+    try:
+        same_task_sessions = None if _missing(sessions) else int(sessions)
+    except (TypeError, ValueError):
+        same_task_sessions = None
+    outflows = row.get("recent_outflows")
     return Facts(
         sender=str(row["account_id"]),
         payee=payee,
@@ -133,9 +160,19 @@ def _facts(row: pd.Series, probability: float) -> Facts:
         first_days_before_listing=float(row["payee_first_days_before_listing"]),
         p_fraud=float(probability),
         segment=str(row["segment"]),
-        behaviour_p_rarity=None,
-        same_task_sessions=None,
+        behaviour_p_rarity=_opt(row.get("behaviour_p_rarity")),
+        behaviour_guided_p=_opt(row.get("behaviour_guided_p")),
+        behaviour_top_group=None if _missing(row.get("behaviour_top_group")) else str(row.get("behaviour_top_group")),
+        behaviour_guided_group=None if _missing(row.get("behaviour_guided_group")) else str(row.get("behaviour_guided_group")),
+        same_task_sessions=same_task_sessions,
+        recent_outflows=outflows if isinstance(outflows, list) else None,
         limit_per_txn=limit_per_txn,
+        habit_rare=_yes(row, "habit_rare"),
+        habit_money_rare=_yes(row, "habit_money_rare"),
+        habit_top_group=None if _missing(row.get("habit_top_group")) else str(row.get("habit_top_group")),
+        habit_top_feature=None if _missing(row.get("habit_top_feature")) else str(row.get("habit_top_feature")),
+        habit_quality=None if _missing(row.get("habit_quality")) else str(row.get("habit_quality")),
+        habit_extreme=bool(_yes(row, "habit_extreme")),
     )
 
 
@@ -269,6 +306,19 @@ def main() -> None:
     work["payee_first_days_before_listing"] = pd.to_numeric(work["payee_first_days_before_listing"], errors="coerce").fillna(0)
     work["account_id"] = work["account_id"].astype("string").fillna(work["session_id"])
     work = work.sort_values(["start_ts", "session_id"], kind="mergesort").reset_index(drop=True)
+    print("simulation only: scoring habit", flush=True)
+    habit = score_sessions(set(work["session_id"].astype(str)))
+
+    def _picked(item, name):
+        return None if item is None else getattr(item, name)
+
+    picked = work["session_id"].map(lambda item: habit.get(str(item)))
+    work["habit_rare"] = picked.map(lambda item: _picked(item, "rare"))
+    work["habit_money_rare"] = picked.map(lambda item: _picked(item, "money_rare"))
+    work["habit_top_group"] = picked.map(lambda item: _picked(item, "top_group"))
+    work["habit_top_feature"] = picked.map(lambda item: _picked(item, "top_feature"))
+    work["habit_quality"] = picked.map(lambda item: _picked(item, "quality"))
+    work["habit_extreme"] = picked.map(lambda item: bool(item.extreme) if item is not None else False)
     state = MemoryState()
     levels = []
     fired_rows: list[list[str]] = []
@@ -320,6 +370,27 @@ def main() -> None:
     _rule_table("fraud sessions at level >= 2", answered.loc[at_ge2 & answered["is_fraud"].astype(bool)], ge2_ids, n_fraud)
     _unusual_table(answered)
     _simo_table(answered, n_legit, n_fraud)
+    print("simulation only: 70% interbank, payee features missing", flush=True)
+    rng = np.random.default_rng(42)
+    masked = work.copy()
+    drop = rng.random(len(masked)) < 0.7
+    for column in ("payee_account_age_days", "distinct_senders_7d", "passthrough_24h"):
+        if column in masked.columns:
+            masked.loc[drop, column] = np.nan
+    state = MemoryState()
+    inter_levels = []
+    for index, row in masked.iterrows():
+        outcome = evaluate(_facts(row, scores[str(row["session_id"])]), state)
+        inter_levels.append(STRING_LEVEL[outcome.level])
+        if index and index % 5000 == 0:
+            print(f"simulation only: interbank {index}/{total}", flush=True)
+    inter = np.asarray(inter_levels)
+    inter_fraud = masked["is_fraud"].astype(bool).to_numpy()
+    inter_ge1 = np.isin(inter, ["banner", "medium", "high"])
+    inter_ge2 = np.isin(inter, ["medium", "high"])
+    print(f"legit ≥ level 1 {100 * float(inter_ge1[~inter_fraud].mean()):.2f}%", flush=True)
+    print(f"legit ≥ level 2 {100 * float(inter_ge2[~inter_fraud].mean()):.2f}%", flush=True)
+    print(f"fraud ≥ level 2 {100 * float(inter_ge2[inter_fraud].mean()):.2f}%", flush=True)
 
 
 if __name__ == "__main__":

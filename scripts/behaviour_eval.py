@@ -32,10 +32,11 @@ from engine.features.behaviour import (
 )
 
 GUIDED = {
-    "pause_to_action_ratio": ("mul", 1.8),
-    "p90_gap_ms": ("mul", 1.6),
-    "background_total_ms": ("mul", 4.0),
-    "background_count": ("add", 2),
+    "payee_burst_count": ("set", 4),
+    "payee_mean_burst_len": ("set", 3),
+    "payee_inter_burst_gap_median_ms": ("set", 3500),
+    "background_count": ("set", 0),
+    "background_total_ms": ("set", 0),
 }
 EVASION = {
     "pause_to_action_ratio": ("mul", 1.15),
@@ -100,8 +101,8 @@ def walk(sessions: list[dict], population: dict, directions: dict, cfg: dict, re
             task = row["task_type"]
             base = history[task]
             pop = population.get(task) or {}
-            personal = score_features(row["features"], base, pop, directions, cfg["prior"], cfg["floor"])
-            pooled = score_features(row["features"], [], pop, directions, cfg["prior"], cfg["floor"])
+            personal = score_features(row["features"], base, pop, directions, cfg["prior"], cfg["floor"], task)
+            pooled = score_features(row["features"], [], pop, directions, cfg["prior"], cfg["floor"], task)
             rarity = None if reference is None else empirical_p(personal.score, reference)
             scored_rows.append(
                 {
@@ -177,7 +178,9 @@ def describe_shift(shift: dict) -> str:
     parts = []
     for name, spec in shift.items():
         kind, amount = spec
-        if kind == "mul":
+        if kind == "set":
+            parts.append(f"{name} = {amount:g}")
+        elif kind == "mul":
             parts.append(f"{name} ×{amount:g}")
         else:
             sign = "+" if amount >= 0 else ""
@@ -302,17 +305,18 @@ def analyse(sessions: list[dict], label: str) -> None:
 
 
 def _rarity(features: dict, history: list[dict], population: dict, reference: list[float], cfg: dict) -> float | None:
-    scored = score_features(features, history, population, cfg["directions"], cfg["prior"], cfg["floor"])
+    scored = score_features(features, history, population, cfg["directions"], cfg["prior"], cfg["floor"], "new_typed")
     return empirical_p(scored.score, reference)
 
 
-def _artifact(task: str = "new_typed") -> tuple[dict, list[float], list[int], str]:
+def _artifact(task: str = "new_typed") -> tuple[dict, list[float], list[int], str, list[float]]:
     loaded = load_reference(task)
     if not loaded:
         raise SystemExit(f"missing behaviour reference for {task}")
     scores = [float(item) for item in loaded["scores"]]
     sizes = [int(item) for item in loaded.get("baseline_n") or []]
-    return loaded["population"], scores, sizes, str(loaded.get("provenance") or "")
+    guided = [float(item) for item in loaded.get("guided_scores") or []]
+    return loaded["population"], scores, sizes, str(loaded.get("provenance") or ""), guided
 
 
 def _slice_reference(scores: list[float], sizes: list[int], n_prior: int | None) -> list[float]:
@@ -350,7 +354,7 @@ def _hit_rate(probes, population, reference, cfg, gap: float, extra: int) -> tup
 def recovery(people: int = 400) -> None:
     """Đường phát hiện. p_rarity dùng reference đã ghi, cùng số phiên nền với probe."""
     cfg = settings()
-    population, scores, sizes, provenance = _artifact()
+    population, scores, sizes, provenance, _guided = _artifact()
     same = _slice_reference(scores, sizes, 6)
     rng = random.Random(7)
     probes = _probes(rng, people, 6)
@@ -375,7 +379,7 @@ def recovery(people: int = 400) -> None:
 
 def sensitivity(people: int = 400) -> None:
     cfg = settings()
-    population, scores, sizes, provenance = _artifact()
+    population, scores, sizes, provenance, _guided = _artifact()
     rng = random.Random(11)
     print(f"baseline-size sensitivity ({provenance}, gaps only, null matched to prior-session count)")
     print("prior false-alarm detection_+30% detection_+50%")
@@ -430,6 +434,42 @@ def _power_at(participants: int, dz: float, reps: int = 2000, seed: int = 1) -> 
     return float(np.mean(np.abs(stat) >= _t_crit(participants - 1)))
 
 
+def pattern_rates(people: int = 400) -> None:
+    """Tỷ lệ behaviour_rare và behaviour_guided cho phiên được đọc số và phiên nói chậm."""
+    cfg = settings()
+    population, scores, sizes, provenance, guided_scores = _artifact()
+    print(f"pattern rates ({provenance})")
+    for n_prior in (6, 10):
+        reference = _slice_reference(scores, sizes, n_prior)
+        guided_reference = _slice_reference(guided_scores, sizes, n_prior)
+        rng = random.Random(19 + n_prior)
+        guided_rare = guided_hit = slow_rare = slow_hit = 0
+        for _ in range(people):
+            traits = draw_person(rng)
+            history = [draw_session(rng, "new_typed", traits) for _ in range(n_prior)]
+            guided = draw_session(rng, "new_typed", traits, GUIDED)
+            slow = draw_session(rng, "new_typed", traits, on_call=True)
+            for kind, features in (("guided", guided), ("slow", slow)):
+                scored = score_features(features, history, population, cfg["directions"], cfg["prior"], cfg["floor"], "new_typed")
+                rarity = empirical_p(scored.score, reference)
+                guided_p = empirical_p(scored.guided_score, guided_reference)
+                rare = rarity is not None and rarity <= 0.05
+                hit = guided_p is not None and guided_p <= 0.05
+                if kind == "guided":
+                    guided_rare += int(rare)
+                    guided_hit += int(hit)
+                else:
+                    slow_rare += int(rare)
+                    slow_hit += int(hit)
+        print(
+            f"prior {n_prior} guided behaviour_rare {guided_rare / people:.3f} ({guided_rare}/{people}) "
+            f"behaviour_guided {guided_hit / people:.3f} ({guided_hit}/{people}) "
+            f"slow-talk behaviour_rare {slow_rare / people:.3f} ({slow_rare}/{people}) "
+            f"behaviour_guided {slow_hit / people:.3f} ({slow_hit}/{people}) "
+            f"reference {len(reference)} guided-reference {len(guided_reference)}"
+        )
+
+
 def main() -> None:
     real, reason = load_real()
     conditions = {row["condition"] for row in real}
@@ -444,6 +484,7 @@ def main() -> None:
         analyse(synthetic_people(), "synthetic")
     recovery()
     sensitivity()
+    pattern_rates()
     power()
 
 

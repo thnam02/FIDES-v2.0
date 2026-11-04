@@ -28,24 +28,32 @@ CONTINUOUS = (
     "pause_to_action_ratio",
     "review_dwell_ms",
     "background_total_ms",
+    "payee_mean_burst_len",
+    "payee_inter_burst_gap_median_ms",
 )
 COUNTS = (
-    "burst_count",
     "edit_count",
     "backtrack_count",
     "screen_revisit_count",
     "background_count",
+    "payee_burst_count",
+)
+DICTATION = (
+    "payee_burst_count",
+    "payee_mean_burst_len",
+    "payee_inter_burst_gap_median_ms",
 )
 SCORED = CONTINUOUS + COUNTS
-STORED = SCORED + ("session_duration_ms",)
+STORED = SCORED + ("burst_count", "session_duration_ms")
 GROUPS = (
-    ("rhythm", ("median_gap_ms", "p90_gap_ms")),
-    ("bursts", ("burst_count", "pause_to_action_ratio")),
+    ("rhythm", ("median_gap_ms", "p90_gap_ms", "pause_to_action_ratio")),
+    ("dictation", DICTATION),
     ("review", ("review_dwell_ms",)),
     ("corrections", ("edit_count", "backtrack_count")),
     ("navigation", ("screen_revisit_count",)),
     ("app_switch", ("background_count", "background_total_ms")),
 )
+GUIDED_GROUPS = ("dictation", "app_switch")
 PRIMARY = ("pause_to_action_ratio", "p90_gap_ms", "background_total_ms")
 QUALITY_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
 
@@ -83,8 +91,13 @@ class View:
     groups: dict
     feature_scores: dict
     reasons: list[str]
+    top_group: str
+    review_direction: str
     delay_us: int
     max_sessions: int
+    guided_score: float = 0.0
+    guided_p: float | None = None
+    guided_group: str = ""
 
 
 @dataclass
@@ -93,6 +106,10 @@ class Score:
     groups: dict
     feature_scores: dict
     reasons: list[str] = field(default_factory=list)
+    top_group: str = ""
+    review_direction: str = ""
+    guided_score: float = 0.0
+    guided_group: str = ""
 
 
 def _policy():
@@ -167,13 +184,20 @@ def parse_features(payload) -> dict | None:
     if not isinstance(payload, dict):
         return None
     parsed = {}
-    for name in SCORED:
+    required = [name for name in SCORED if name not in DICTATION]
+    for name in required:
         number = _number(payload.get(name))
         if number is None:
             return None
         parsed[name] = float(number)
-    duration = _number(payload.get("session_duration_ms"))
-    parsed["session_duration_ms"] = 0.0 if duration is None else float(duration)
+    for name in ("burst_count", "session_duration_ms", *DICTATION):
+        if name not in payload or payload.get(name) is None:
+            continue
+        number = _number(payload.get(name))
+        if number is None:
+            return None
+        parsed[name] = float(number)
+    parsed.setdefault("session_duration_ms", 0.0)
     return parsed
 
 
@@ -209,55 +233,130 @@ def count_score(value: float, baseline: list[float]) -> float:
     return 1.0 - tail
 
 
-def _phrase(group: str, features: dict, feature_scores: dict) -> str:
+def _phrase(group: str, review_direction: str) -> str:
     if group == "rhythm":
-        return "dừng lâu hơn thường lệ"
-    if group == "bursts":
-        if feature_scores.get("pause_to_action_ratio", 0.0) >= feature_scores.get("burst_count", 0.0):
-            return "nghỉ lâu giữa các thao tác"
-        return "thao tác thành cụm hơn thường lệ"
+        return "Bạn dừng lâu hơn thường lệ giữa các bước."
+    if group == "dictation":
+        return "Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho."
     if group == "review":
-        return "xem lại lâu hơn thường lệ"
+        if review_direction == "fast":
+            return "Bạn xác nhận nhanh bất thường so với thường lệ."
+        return "Bạn xem lại lâu hơn thường lệ."
     if group == "corrections":
         return "sửa nhiều hơn thường lệ"
     if group == "navigation":
         return "quay lại màn hình nhiều hơn thường lệ"
-    count = int(round(float(features.get("background_count") or 0)))
-    if count > 0 and feature_scores.get("background_count", 0.0) >= feature_scores.get("background_total_ms", 0.0):
-        return f"rời app {count} lần"
-    return "ở ngoài app lâu hơn thường lệ"
+    return "Bạn rời ứng dụng nhiều lần trong lúc chuyển tiền."
 
 
-def score_features(features: dict, baseline: list[dict], population: dict, directions: dict, prior: float = 5.0, floor_fraction: float = 0.5) -> Score:
+def _shrink(value: float, baseline: list[float], pop_median: float, pop_mad: float, prior: float, floor_fraction: float) -> tuple[float, float]:
+    count = len(baseline)
+    weight = count / (count + prior) if count else 0.0
+    personal_median = median(baseline) if count else pop_median
+    personal_mad = mad(baseline, personal_median) if count else pop_mad
+    center = weight * personal_median + (1.0 - weight) * pop_median
+    shrunk = weight * personal_mad + (1.0 - weight) * pop_mad
+    return center, max(shrunk, floor_fraction * pop_mad)
+
+
+def _scored_name(name: str, features: dict, task_type: str | None) -> bool:
+    if name not in features:
+        return False
+    if name in DICTATION and task_type != "new_typed":
+        return False
+    bursts = float(features.get("payee_burst_count") or 0)
+    if name == "payee_mean_burst_len" and bursts <= 0:
+        return False
+    if name == "payee_inter_burst_gap_median_ms" and bursts < 2:
+        return False
+    return True
+
+
+def score_features(
+    features: dict,
+    baseline: list[dict],
+    population: dict,
+    directions: dict,
+    prior: float = 5.0,
+    floor_fraction: float = 0.5,
+    task_type: str | None = None,
+) -> Score:
     feature_scores = {}
+    review_direction = ""
     for name in SCORED:
-        column = [float(row[name]) for row in baseline if name in row]
+        if not _scored_name(name, features, task_type):
+            continue
+        column = [float(row[name]) for row in baseline if name in row and row.get(name) is not None]
         pop = population.get(name) or {"median": 0.0, "mad": 0.0}
-        if name in COUNTS:
-            feature_scores[name] = count_score(float(features[name]), column)
-        else:
-            feature_scores[name] = robust_z(
+        if name == "review_dwell_ms":
+            center, scale = _shrink(
                 float(features[name]),
                 column,
                 float(pop.get("median") or 0.0),
                 float(pop.get("mad") or 0.0),
                 prior,
                 floor_fraction,
-                str(directions.get(name) or "up"),
             )
+            raw = (float(features[name]) - center) / (CONSISTENCY * scale + EPS)
+            feature_scores[name] = abs(raw)
+            if raw < 0:
+                review_direction = "fast"
+            elif raw > 0:
+                review_direction = "slow"
+            continue
+        if name in COUNTS:
+            feature_scores[name] = count_score(float(features[name]), column)
+            continue
+        feature_scores[name] = robust_z(
+            float(features[name]),
+            column,
+            float(pop.get("median") or 0.0),
+            float(pop.get("mad") or 0.0),
+            prior,
+            floor_fraction,
+            str(directions.get(name) or "up"),
+        )
     groups = {}
     for group, names in GROUPS:
-        groups[group] = max(feature_scores[name] for name in names)
-    session = sum(groups.values()) / float(len(GROUPS))
+        present = [feature_scores[name] for name in names if name in feature_scores]
+        if present:
+            groups[group] = max(present)
+    session = sum(groups.values()) / float(len(groups)) if groups else 0.0
     ranked = sorted(groups, key=lambda name: (-groups[name], name))
     reasons = []
     for name in ranked:
         if groups[name] <= 0:
             continue
-        reasons.append(_phrase(name, features, feature_scores))
+        reasons.append(_phrase(name, review_direction))
         if len(reasons) == 2:
             break
-    return Score(score=session, groups=groups, feature_scores=feature_scores, reasons=reasons)
+    top = ranked[0] if ranked and groups[ranked[0]] > 0 else ""
+    guided_score, guided_group = _guided_pair(groups, review_direction)
+    return Score(
+        score=session,
+        groups=groups,
+        feature_scores=feature_scores,
+        reasons=reasons,
+        top_group=top,
+        review_direction=review_direction,
+        guided_score=guided_score,
+        guided_group=guided_group,
+    )
+
+
+def _guided_pair(groups: dict, review_direction: str) -> tuple[float, str]:
+    """Điểm hướng dẫn là nhóm cao nhất trong đọc số, rời app, và xác nhận nhanh."""
+    best_score = 0.0
+    best_name = ""
+    for name in ("dictation", "app_switch", "review"):
+        if name == "review" and review_direction != "fast":
+            continue
+        value = float(groups.get(name) or 0.0)
+        if name not in groups or value <= best_score:
+            continue
+        best_score = value
+        best_name = name
+    return best_score, best_name
 
 
 def empirical_p(score: float, reference: list[float]) -> float | None:
@@ -317,9 +416,10 @@ def assess(client, user: str, task_type: str | None, features, decided: datetime
     population = reference.get("population") or {}
     rows = baseline_rows(_records(client, user, task_type), _to_us(decided), cfg["max_sessions"])
     history = [row.get("features") or {} for row in rows]
-    scored = score_features(parsed, history, population, cfg["directions"], cfg["prior"], cfg["floor"])
+    scored = score_features(parsed, history, population, cfg["directions"], cfg["prior"], cfg["floor"], task_type)
     quality = quality_name(len(rows), cfg["medium"], cfg["high"])
     rarity = empirical_p(scored.score, list(reference.get("scores") or []))
+    guided_p = empirical_p(scored.guided_score, list(reference.get("guided_scores") or []))
     delay_us = 0 if experiment else int(cfg["delay_hours"] * 3600 * 1_000_000)
     return View(
         user=user,
@@ -335,8 +435,13 @@ def assess(client, user: str, task_type: str | None, features, decided: datetime
         groups=scored.groups,
         feature_scores=scored.feature_scores,
         reasons=scored.reasons,
+        top_group=scored.top_group,
+        review_direction=scored.review_direction,
         delay_us=delay_us,
         max_sessions=cfg["max_sessions"],
+        guided_score=scored.guided_score,
+        guided_p=guided_p,
+        guided_group=scored.guided_group,
     )
 
 
@@ -386,8 +491,13 @@ def _apply_shift(features: dict, shift: dict | None) -> None:
         if name not in features:
             continue
         kind, amount = spec
-        updated = features[name] * float(amount) if kind == "mul" else features[name] + float(amount)
-        if name in COUNTS:
+        if kind == "set":
+            updated = float(amount)
+        elif kind == "mul":
+            updated = features[name] * float(amount)
+        else:
+            updated = features[name] + float(amount)
+        if name in COUNTS or name == "burst_count":
             features[name] = float(max(0, int(round(updated))))
         else:
             features[name] = max(0.0, float(updated))
@@ -396,11 +506,31 @@ def _apply_shift(features: dict, shift: dict | None) -> None:
 _TIMED = ("median_gap_ms", "p90_gap_ms", "review_dwell_ms")
 
 
-def draw_session(rng: random.Random, task_type: str, person: dict, shift: dict | None = None) -> dict:
+def draw_dictation(rng: random.Random, person: dict) -> dict:
+    """Gõ thường là một cụm 8–14 số. Khoảng một phần tư tách thành hai cụm, nghỉ 1,2–2 giây."""
+    digits = rng.randint(8, 14)
+    if rng.random() < 0.75:
+        return {"payee_burst_count": 1.0, "payee_mean_burst_len": float(digits)}
+    left = max(1, digits // 2)
+    right = max(1, digits - left)
+    gap = rng.uniform(1200.0, 2000.0) * float(person["speed"])
+    return {
+        "payee_burst_count": 2.0,
+        "payee_mean_burst_len": (left + right) / 2.0,
+        "payee_inter_burst_gap_median_ms": gap,
+    }
+
+
+def draw_session(rng: random.Random, task_type: str, person: dict, shift: dict | None = None, on_call: bool = False) -> dict:
     features = draw_features(rng, task_type)
     for name in _TIMED:
         features[name] *= person["speed"]
     features["pause_to_action_ratio"] *= person["pause"]
+    if on_call:
+        for name in (*_TIMED, "pause_to_action_ratio"):
+            features[name] *= 1.5
+    if task_type == "new_typed":
+        features.update(draw_dictation(rng, person))
     switches = _poisson(rng, person["background_rate"])
     features["background_count"] = float(switches)
     features["background_total_ms"] = float(switches) * person["background_ms"]
@@ -414,7 +544,7 @@ def draw_features(rng: random.Random, task_type: str, shift: dict | None = None)
     for name, (loc, width) in _LOC.items():
         center = loc * scale if name in _SCALED else loc
         value = rng.gauss(center, width)
-        if name in COUNTS:
+        if name in COUNTS or name == "burst_count":
             drawn[name] = float(max(0, int(round(value))))
         else:
             drawn[name] = max(0.0, float(value))
@@ -444,14 +574,16 @@ def write_synthetic_references(root: Path | None = None, seed: int = 42, users: 
                 pool_rows.append(draw_session(rng, task, person))
         population = population_stats(pool_rows)
         scores = []
+        guided_scores = []
         baseline_n = []
         for _user in range(users):
             person = draw_person(rng)
             history: list[dict] = []
             for _session in range(sessions):
                 features = draw_session(rng, task, person)
-                scored = score_features(features, history, population, cfg["directions"], cfg["prior"], cfg["floor"])
+                scored = score_features(features, history, population, cfg["directions"], cfg["prior"], cfg["floor"], task)
                 scores.append(scored.score)
+                guided_scores.append(scored.guided_score)
                 baseline_n.append(len(history))
                 history.append(features)
                 if len(history) > cfg["max_sessions"]:
@@ -463,6 +595,7 @@ def write_synthetic_references(root: Path | None = None, seed: int = 42, users: 
             "seed": seed,
             "population": population,
             "scores": scores,
+            "guided_scores": guided_scores,
             "baseline_n": baseline_n,
         }
         (target / f"{task}.json").write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")

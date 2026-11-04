@@ -237,6 +237,10 @@ def ingest(event: dict) -> bool:
                 if stamp is not None:
                     with audit_conn() as conn:
                         reset_countdown(conn, account, stamp + timedelta(minutes=10), stamp)
+    if STORE is not None:
+        from engine.features.habit import dispute_from_event
+
+        dispute_from_event(STORE.redis, event)
     if event.get("type") in TYPES and "account_hash" in event:
         with connect() as conn:
             return insert_event(conn, event)
@@ -270,6 +274,27 @@ def with_add_method(present: list[str], method_known: bool) -> list[str]:
     if method_known or "add_method_missing" in present:
         return present
     return [*present, "add_method_missing"]
+
+
+def _apply_habit(facts, body: dict, ts_us: int) -> None:
+    if STORE is None:
+        return
+    from engine.features.habit import assess_live
+
+    result = assess_live(
+        STORE.redis,
+        str(body.get("sender_hash") or ""),
+        str(body.get("payee_hash") or ""),
+        int(body.get("amount") or 0),
+        int(body.get("balance") or 0),
+        int(ts_us),
+    )
+    facts.habit_rare = result.rare
+    facts.habit_money_rare = result.money_rare
+    facts.habit_top_group = result.top_group
+    facts.habit_top_feature = result.top_feature
+    facts.habit_quality = result.quality
+    facts.habit_extreme = result.extreme
 
 
 def decide(body: dict) -> tuple[int, dict]:
@@ -322,6 +347,11 @@ def decide(body: dict) -> tuple[int, dict]:
     if behaviour is not None:
         facts.same_task_sessions = behaviour.n
         facts.behaviour_p_rarity = behaviour.p_rarity if behaviour.usable else None
+        facts.behaviour_guided_p = behaviour.guided_p if behaviour.usable else None
+        facts.behaviour_top_group = behaviour.top_group or None
+        facts.behaviour_guided_group = behaviour.guided_group or None
+        facts.behaviour_review_direction = behaviour.review_direction or None
+    _apply_habit(facts, body, to_us(decided))
     outcome = evaluate(facts, RedisState(STORE.redis), behaviour)
     level_name = STRING_LEVEL[outcome.level]
     guardian = bool(int(row.get("has_guardian") or 0))
@@ -347,6 +377,12 @@ def decide(body: dict) -> tuple[int, dict]:
         "hold_until": iso(hold),
         "countdown_until": None,
         "funds_status": funds,
+        "groups_fired": outcome.groups_fired,
+        "strengthened": outcome.strengthened,
+        "continue_requires_hangup": outcome.continue_requires_hangup,
+        "lock_minutes": outcome.lock_minutes,
+        "lock_until": iso(outcome.lock_until),
+        "headline": outcome.headline,
     }
     stored = {
         "decision_id": body["decision_id"],
@@ -373,6 +409,10 @@ def decide(body: dict) -> tuple[int, dict]:
             return 409, {"detail": "decision_id đã có"}
     if behaviour is not None:
         remember(STORE.redis, behaviour, outcome.level)
+    if outcome.level >= 1 or outcome.episode_id:
+        from engine.features.habit import mark_hold
+
+        mark_hold(STORE.redis, str(body["sender_hash"]), to_us(decided), str(body["payee_hash"]), int(body["amount"]), str(body["decision_id"]))
     return 200, payload
 
 
@@ -563,6 +603,9 @@ def main() -> None:
     require_key()
     require_api_key()
     MODEL = Scorer.load()
+    from engine.features.habit import cached_population
+
+    cached_population()
     STORE = OnlineStore(flush=False)
     with connect() as conn:
         ensure_schema(conn)

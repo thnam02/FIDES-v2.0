@@ -1,9 +1,14 @@
-version: "2.4.0"
+version: "2.5.0"
 description: >
   Luật và ngưỡng của /decide. Mức cuối là mức cao nhất trong các luật đã khớp.
   Không có luật đếm số tín hiệu. unknown không bao giờ bị coi là absent.
   Tín hiệu ngữ cảnh là trần: không bao giờ đưa mức lên trên 1. Không phải sàn.
   Chỉ cuộc gọi và người nhận mới nâng lên 1, và chỉ khi chưa có luật mức 2.
+
+# Can thiệp sau khi luật đã khớp. Không đổi ngưỡng phát hiện.
+interventions:
+  lock_minutes: 30
+  hotline: "1900 54 54 13"
 
 thresholds:
   model_p_high:
@@ -19,6 +24,10 @@ thresholds:
     value: 0.951
     provenance: chosen on simulated data
   behaviour_p_rarity_at_most:
+    value: 0.05
+    provenance: chosen on simulated data
+    demo: true
+  behaviour_guided_p_at_most:
     value: 0.05
     provenance: chosen on simulated data
     demo: true
@@ -67,6 +76,33 @@ thresholds:
   cost_eta:
     value: 1
     provenance: chosen on simulated data
+  habit_score_above:
+    value: 0.08393150652186705
+    provenance: 98th percentile of IsolationForest anomaly scores on legit train-window transactions, seed 42
+  habit_profile_above:
+    value: 12080.215402926278
+    provenance: 98th percentile of the robust-z profile on legit train-window transactions, seed 42
+  inflow_multiple:
+    value: 5
+    provenance: v2.5 funds inflows, set for the demo story
+  inflow_min_vnd:
+    value: 10000000
+    provenance: v2.5 funds inflows, set for the demo story
+  inflow_passthrough_ratio:
+    value: 0.70
+    provenance: v2.5 funds inflows, set for the demo story
+  inflow_history_days:
+    value: 90
+    provenance: v2.5 funds inflows, window used to estimate a typical 72h inflow
+  recurring_amount_within:
+    value: 0.15
+    provenance: v2.5 funds inflows, salary and pension stay inside this band
+  recurring_month_days:
+    value: 30
+    provenance: v2.5 funds inflows, monthly gap for salary and pension
+  recurring_gap_slack_days:
+    value: 5
+    provenance: v2.5 funds inflows, how far a monthly gap may drift
 
 # Baseline cá nhân. high từ 8 phiên cùng task_type. Ngưỡng p 0,05 ở trên được đánh dấu demo.
 behavioural_baseline:
@@ -86,7 +122,10 @@ behaviour_directions:
   p90_gap_ms: up
   burst_count: up
   pause_to_action_ratio: up
-  review_dwell_ms: up
+  review_dwell_ms: both
+  payee_burst_count: up
+  payee_mean_burst_len: down
+  payee_inter_burst_gap_median_ms: up
   edit_count: up
   backtrack_count: up
   screen_revisit_count: up
@@ -102,6 +141,24 @@ funds_types:
   limit_raise: "Hạn mức vừa được nâng."
   card_cash_advance: "Thẻ vừa được ứng tiền mặt."
   credit_card_cash_advance: "Thẻ vừa được ứng tiền mặt."
+  p2p_inflow: "Vừa nhận tiền từ nhiều người, hoặc từ một người chưa từng chuyển tới."
+  lender_inflow: "Vừa nhận giải ngân từ một bên cho vay bên ngoài ngân hàng."
+  cash_deposit: "Vừa nộp tiền mặt lớn hơn nhiều so với mức thường nộp."
+  own_transfer_in: "Vừa nhận tiền từ tài khoản của chính mình ở ngân hàng khác."
+
+# Các loại tiền vào bất thường. Luật đi qua chỉ nhìn các loại này, không nhìn sổ tiết kiệm hay vay của chính ngân hàng.
+inflow_kinds:
+  - p2p_inflow
+  - lender_inflow
+  - cash_deposit
+  - own_transfer_in
+
+# Tài khoản cùng ngân hàng dùng account_type. Liên ngân hàng không có loại tài khoản:
+# tên có một trong các cụm này, hoặc nằm trong verified_companies, thì không phải cá nhân.
+company_markers: ["CONG TY", "CTCP", "TNHH", "QUY"]
+organisation_account_types: ["business", "securities", "merchant"]
+lender_markers: ["TAI CHINH", "FINANCE", "CREDIT", "CHO VAY"]
+verified_companies: []
 
 manipulation_signals:
   - has_call
@@ -140,17 +197,27 @@ simo_context:
 rules:
   - id: R_CALL_FUNDS_NEWPAYEE
     level: 2
+    group: A
     all_present: [has_call, recent_funds_event, beneficiary_is_new]
     needs_call: true
+  - id: R_FUNDS_PASSTHROUGH
+    level: 2
+    group: A
+    # inflow_passthrough gồm: tiền vào loại inflow trong 72 giờ, người nhận mới là tài khoản cá nhân,
+    # và lệnh này cộng khoản đi từ lúc nhận đã dùng ít nhất inflow_passthrough_ratio của khoản vào.
+    all_present: [inflow_passthrough, habit_money_rare]
   - id: R_PURPOSE_HIGH_RISK
     level: 2
+    group: C
     all_present: [purpose_high_risk]
   - id: R_RECIPIENT_UNUSUAL
     level: 2
+    group: D
     all_present: [recipient_unusual, beneficiary_is_new]
     all_absent: [merchant_verified]
   - id: R_SIMO
     level: 2
+    group: D
     all_present: [recipient_simo_flag, simo_with_context]
     all_absent: [simo_info_rule]
   - id: R_SIMO_ALONE
@@ -165,10 +232,12 @@ rules:
     all_present: [model_p_cost]
   - id: R_MODEL_HIGH
     level: 2
+    group: D
     all_present: [model_p_high]
   - id: R_BEHAVIOUR_GUIDED
     level: 2
-    all_present: [behaviour_rare, has_call, beneficiary_is_new]
+    group: B
+    all_present: [behaviour_guided, has_call, beneficiary_is_new]
     baseline_at_least: medium
     needs_call: true
   - id: R_BEHAVIOUR_ONLY
@@ -178,7 +247,16 @@ rules:
     unless_fired: [R_BEHAVIOUR_GUIDED]
   - id: R_CAPTURE
     level: 2
+    group: B
     all_present: [screen_capture_active]
+  - id: R_HABIT_NEWPAYEE
+    level: 1
+    all_present: [habit_rare, beneficiary_is_new]
+  - id: R_CALL_HABIT_NEWPAYEE
+    level: 2
+    group: A
+    all_present: [has_call, beneficiary_is_new, habit_money_rare]
+    needs_call: true
   - id: R_DEVICE_CAPABILITY
     level: 1
     all_present: [device_capability]

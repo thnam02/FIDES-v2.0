@@ -2,6 +2,8 @@ import { useSyncExternalStore } from "react"
 import { Modal, Pressable, Text, View } from "react-native"
 import { FidesSession } from "fides-sdk"
 
+import { BANK_URL } from "../api/client"
+import { FRAUD_CONFIRMED, GUARDIAN_DECLINED } from "../intervention"
 import { DEMO, useBank } from "../store"
 import { colors } from "../ui/parts"
 
@@ -20,6 +22,22 @@ export function openDemoDrawer() {
 export function closeDemoDrawer() {
   open = false
   emit()
+}
+
+function story(url: string, fallback: string) {
+  const current = useBank.getState().outcome
+  if (!current?.transferId) return
+  void fetch(url, { method: "POST" }).then(async (response) => {
+    if (!response.ok) return
+    const body = (await response.json()) as { message?: string }
+    useBank.getState().setOutcome({
+      ...current,
+      status: "cancelled",
+      funds_status: "cancelled",
+      demoNotice: body.message || fallback,
+    })
+    closeDemoDrawer()
+  })
 }
 
 function useDemoOpen() {
@@ -50,6 +68,27 @@ export function DemoControls() {
       <Pressable testID="call-end" accessibilityRole="button" onPress={() => { FidesSession.setSimulatedCall(false, false); setStrangerCall(false); closeDemoDrawer() }} style={{ minHeight: 44, justifyContent: "center" }}>
         <Text style={{ color: colors.deep, fontWeight: "700" }}>Demo: kết thúc cuộc gọi</Text>
       </Pressable>
+      {DEMO ? (
+        <>
+          <Pressable testID="demo-hotline" accessibilityRole="button" onPress={() => {
+            const current = useBank.getState().outcome
+            if (!current?.transferId) return
+            void fetch(`${BANK_URL}/transfer/${current.transferId}/hotline`, { method: "POST" }).then((response) => {
+              if (!response.ok) return
+              useBank.getState().setOutcome({ ...current, hotlineUnlocked: true })
+              closeDemoDrawer()
+            })
+          }} style={{ minHeight: 44, justifyContent: "center" }}>
+            <Text style={{ color: colors.deep, fontWeight: "700" }}>Demo: tổng đài xác nhận hợp lệ</Text>
+          </Pressable>
+          <Pressable testID="demo-hotline-fraud" accessibilityRole="button" onPress={() => story(`${BANK_URL}/transfer/${useBank.getState().outcome?.transferId}/hotline-fraud`, FRAUD_CONFIRMED)} style={{ minHeight: 44, justifyContent: "center" }}>
+            <Text style={{ color: colors.deep, fontWeight: "700" }}>Demo: tổng đài xác nhận lừa đảo</Text>
+          </Pressable>
+          <Pressable testID="demo-guardian-decline" accessibilityRole="button" onPress={() => story(`${BANK_URL}/transfer/${useBank.getState().outcome?.transferId}/guardian-decline`, GUARDIAN_DECLINED)} style={{ minHeight: 44, justifyContent: "center" }}>
+            <Text style={{ color: colors.deep, fontWeight: "700" }}>Demo: người giám hộ từ chối</Text>
+          </Pressable>
+        </>
+      ) : null}
     </View>
   )
 }

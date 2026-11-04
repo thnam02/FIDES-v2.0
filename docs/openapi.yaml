@@ -606,8 +606,9 @@ paths:
         lúc đó chỉ là ghi chú info.
         medium giữ 30 phút. high giữ 24 giờ và chặn cho đến khi cúp máy.
         Header Idempotency-Key trả lại đúng lệnh đã tạo, không ghi nợ lần hai.
-        /decide hết 300 ms hoặc lỗi thì chuyển bình thường và ghi log engine_unavailable.
-        Từ 50 triệu tới người nhận mới thì vẫn hiện banner. Thiếu device thì engine dùng profile basic.
+        /decide hết 300 ms hoặc lỗi thì lệnh là unscored, không bao giờ mức 0, và ghi log engine_unavailable.
+        Người nhận đã lưu hoặc đã từng ghi sổ thì đi tiếp. Người nhận mới hiện tờ mức 1, chưa trừ tiền, chưa ghi vào sổ người nhận.
+        Thiếu device thì engine dùng profile basic.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -1155,6 +1156,18 @@ components:
         session_duration_ms:
           type: integer
           minimum: 0
+        payee_burst_count:
+          type: number
+          minimum: 0
+          description: Số cụm gõ ô số tài khoản. Chỉ khi task_type là new_typed. Vắng nghĩa là không biết, không phải không có cụm.
+        payee_mean_burst_len:
+          type: number
+          minimum: 0
+          description: Số phím trung bình mỗi cụm. Bỏ khi không có cụm.
+        payee_inter_burst_gap_median_ms:
+          type: number
+          minimum: 0
+          description: Trung vị khoảng nghỉ giữa các cụm. Bỏ khi chỉ có một cụm.
     TransferPurpose:
       type: string
       enum:
@@ -1524,6 +1537,27 @@ components:
             - $ref: "#/components/schemas/EntryDetail"
             - type: "null"
           description: Cách dán hoặc lấy số từ ảnh. App gắn khi hiện thẻ. Engine không đọc.
+        funds:
+          type: array
+          description: Khoản vừa vào, gồm sản phẩm của ngân hàng và tiền vào bất thường.
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, amount, channel, at]
+            properties:
+              kind:
+                type: string
+              amount:
+                type: integer
+              channel:
+                type: string
+              at:
+                type: string
+        episode_rules:
+          type: array
+          description: Luật đã mở episode. Có khi quyết định này nằm trong episode đó.
+          items:
+            type: string
     Intervention:
       type: string
       enum: [none, banner, reminder, three_button, security_workflow]
@@ -1608,6 +1642,28 @@ components:
               format: date-time
             - type: "null"
           description: Hung_up ở high cộng 10 phút. Cuộc gọi mới tính lại. Proceed trước mốc này không nhả tiền.
+        groups_fired:
+          type: array
+          items:
+            type: string
+            enum: [A, B, C, D]
+          description: Nhóm của các luật mức 2 đã khớp. Hai nhóm trở lên là strengthened.
+        strengthened:
+          type: boolean
+        continue_requires_hangup:
+          type: boolean
+          description: Một luật mức 2 đã khớp có điều kiện cuộc gọi.
+        lock_minutes:
+          type: integer
+          description: Số phút khoá Tiếp tục khi strengthened. Còn lại là 0.
+        lock_until:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        headline:
+          type: string
+          description: Câu tiếng Việt của luật mức 2 đứng trước, hoặc câu mặc định mức 1.
     UserChoice:
       type: string
       enum: [pause, cancel, continue, abandoned]
@@ -1818,9 +1874,14 @@ components:
       required: [level, actions, reasons]
       properties:
         level:
-          type: integer
-          enum: [0, 1, 2, 3]
-          description: "0 proceed, 1 banner, 2 three-button verification, 3 security workflow."
+          anyOf:
+            - type: integer
+              enum: [0, 1, 2, 3]
+            - type: "null"
+          description: "0 proceed, 1 banner, 2 three-button verification, 3 security workflow. null khi chưa chấm được và người nhận đã quen."
+        unscored:
+          type: boolean
+          description: "/decide không trả lời trong hạn của ngân hàng."
         actions:
           type: array
           items:
@@ -1843,6 +1904,23 @@ components:
           $ref: "#/components/schemas/EvidenceCard"
         intervention:
           $ref: "#/components/schemas/Intervention"
+        groups_fired:
+          type: array
+          items:
+            type: string
+        strengthened:
+          type: boolean
+        continue_requires_hangup:
+          type: boolean
+        lock_minutes:
+          type: integer
+        lock_until:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        headline:
+          type: string
     TransferResponse:
       type: object
       required: [transfer_id, status, funds_status, hold_until, decision]
@@ -1874,6 +1952,9 @@ components:
           type: boolean
         cancel:
           type: boolean
+        call:
+          $ref: "#/components/schemas/CallContext"
+          description: Trạng thái cuộc gọi gửi kèm proceed. active thì máy chủ từ chối nếu luật mức 2 yêu cầu cúp máy.
     TransferRespondResponse:
       type: object
       required: [transfer_id, status, level, funds_status, gate, hold_until, countdown_until]

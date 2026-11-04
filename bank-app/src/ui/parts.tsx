@@ -70,7 +70,7 @@ export function Card({ children }: { children: ReactNode }) {
   return <View className="flex-col gap-3 rounded-2xl bg-mint p-4" style={{ gap: 12, borderRadius: 16, backgroundColor: colors.mint, padding: 16 }}>{children}</View>
 }
 
-export function Button({ label, onPress, outline = false, testID, disabled = false }: { label: string; onPress?: () => void; outline?: boolean; testID?: string; disabled?: boolean }) {
+export function Button({ label, onPress, outline = false, testID, disabled = false, quiet = false }: { label: string; onPress?: () => void; outline?: boolean; testID?: string; disabled?: boolean; quiet?: boolean }) {
   const type = useType()
   return (
     <Pressable
@@ -80,9 +80,9 @@ export function Button({ label, onPress, outline = false, testID, disabled = fal
       disabled={disabled}
       onPress={disabled ? undefined : onPress}
       className="min-h-11 items-center justify-center rounded-xl px-4"
-      style={{ minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 12, paddingHorizontal: 16, backgroundColor: outline ? colors.white : colors.deep, borderWidth: outline ? 1 : 0, borderColor: colors.deep, opacity: disabled ? 0.4 : 1 }}
+      style={{ minHeight: quiet ? 36 : 44, alignItems: "center", justifyContent: "center", borderRadius: 12, paddingHorizontal: 16, backgroundColor: outline || quiet ? colors.white : colors.deep, borderWidth: outline || quiet ? 1 : 0, borderColor: quiet ? "#CBD5E1" : colors.deep, opacity: disabled ? 0.4 : 1 }}
     >
-      <Text style={{ color: outline ? colors.deep : colors.white, fontSize: type.body, fontWeight: "600" }}>{label}</Text>
+      <Text style={{ color: outline || quiet ? colors.deep : colors.white, fontSize: quiet ? type.small : type.body, fontWeight: quiet ? "500" : "600" }}>{label}</Text>
     </Pressable>
   )
 }
