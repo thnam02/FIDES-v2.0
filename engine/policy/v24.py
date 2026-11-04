@@ -160,6 +160,7 @@ HEADLINES = {
     "R_RECIPIENT_UNUSUAL": "Tài khoản nhận có dấu hiệu được dùng để nhận tiền lừa đảo.",
     "R_SIMO": "Tài khoản nhận có dấu hiệu được dùng để nhận tiền lừa đảo.",
     "R_MODEL_HIGH": "Giao dịch có dấu hiệu rủi ro cao theo mô hình của ngân hàng.",
+    "R_VERIFIED_RECIPIENT": "Tài khoản nhận đã được xác nhận là tài khoản lừa đảo. Ngân hàng đang giữ giao dịch để bảo vệ bạn.",
 }
 LEVEL1_HEADLINE = "Hãy kiểm tra lại trước khi chuyển."
 LEVEL1_HEADLINES = {
@@ -198,11 +199,19 @@ def intervention_of(fired: list[dict], level: int, purpose: str | None = None) -
     strengthened = len(groups) >= 2
     hangup = any(bool(rule.get("needs_call")) for rule in level2)
     headline = ""
-    for rule in level2:
+    for rule in fired:
+        if int(rule.get("level") or 0) < 3:
+            continue
         text = _rule_headline(str(rule.get("id")), purpose)
         if text:
             headline = text
             break
+    if not headline:
+        for rule in level2:
+            text = _rule_headline(str(rule.get("id")), purpose)
+            if text:
+                headline = text
+                break
     if not headline and level >= 1:
         for rule in fired:
             if int(rule.get("level") or 0) != 1:

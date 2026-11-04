@@ -95,7 +95,7 @@ Cùng khách, ngay sau D, công tắc ghi đã tắt. Không gọi. Không reset
 
 Người nhận: Trịnh Văn Khôi, gõ `0902003001`. Số tiền 500.000.
 
-Màn hình mức 3. Tiêu đề: “Giao dịch đang được ngân hàng xem xét.” Câu: “Ngân hàng đã xác nhận tài khoản nhận nằm trong hồ sơ đường dây.” Dòng nhỏ: “Mô phỏng chính sách tạm giữ 24 giờ của ngân hàng.” Chỉ có “Về trang chủ”.
+Màn hình mức 3. Tiêu đề: “Giao dịch đang được ngân hàng xem xét.” Câu lớn: “Tài khoản nhận đã được xác nhận là tài khoản lừa đảo. Ngân hàng đang giữ giao dịch để bảo vệ bạn.” Lý do: “Ngân hàng đã xác nhận tài khoản nhận nằm trong hồ sơ đường dây.” Dòng nhỏ: “Mô phỏng chính sách tạm giữ 24 giờ của ngân hàng.” Chỉ có “Về trang chủ”.
 
 ### 7. Trương Gia Thịnh, cảnh C
 
@@ -131,5 +131,4 @@ Luật phát hiện đã chốt trong các đợt 1–3 khớp code. Những ch�
 - Công tắc “Demo: phiên có hướng dẫn” thay số liệu trên máy bằng vector cố định. Tắt công tắc thì máy chấm đúng nhịp gõ.
 - TreeSHAP của thói quen chỉ chạy khi `habit_rare` đã đúng.
 - `/decide` quá 300 ms thành unscored, không bao giờ mức 0.
-- Mức 3 (`R_VERIFIED_RECIPIENT`) không có câu headline riêng. Trường `headline` rơi về “Hãy kiểm tra lại trước khi chuyển.” Màn hình điện thoại không hiện câu đó: tiêu đề là “Giao dịch đang được ngân hàng xem xét” và lý do là câu hồ sơ đường dây.
 - Bản mô phỏng chính sách không có nhịp gõ. Nó rút `behaviour_rare` và `behaviour_guided` theo tỷ lệ tổng hợp ở 10 phiên nền. Phần 70% của luật đi qua trong bản mô phỏng chỉ tính lệnh hiện tại, không cộng các khoản đi trước đó trong 72 giờ.

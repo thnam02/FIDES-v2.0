@@ -242,6 +242,7 @@ def test_simo_info_rule_does_not_lower_a_verified_mule():
     assert mule.intervention == "security_workflow"
     assert "R_VERIFIED_RECIPIENT" in mule.rules_fired
     assert "R_SIMO_KNOWN" in mule.rules_fired
+    assert mule.headline == "Tài khoản nhận đã được xác nhận là tài khoản lừa đảo. Ngân hàng đang giữ giao dịch để bảo vệ bạn."
 
 
 def test_simo_with_active_call_is_level_2():

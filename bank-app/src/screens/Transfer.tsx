@@ -713,6 +713,7 @@ export function ResultScreen() {
             <AlertTriangle size={22} color={colors.warn} />
             <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700", flex: 1 }}>{copy.level3Title}</Text>
           </View>
+          {outcome.headline ? <Text testID="level-3-headline" style={{ color: colors.navy, fontSize: type.body }}>{outcome.headline}</Text> : null}
           <Card>
             <Text style={{ color: colors.navy, fontWeight: "700" }}>{who}</Text>
             <Text style={{ color: "#64748B", fontSize: type.small }}>{copy.bankName} · {showAccount(outcome.payee)}</Text>
