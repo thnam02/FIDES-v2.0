@@ -131,6 +131,15 @@ def _facts(row: pd.Series, probability: float) -> Facts:
     except (TypeError, ValueError):
         limit_per_txn = None
     payee = str(row.get("to_account") or row["session_id"])
+    extra = row.get("extra_funds")
+    if isinstance(extra, list):
+        funds = list(extra) + funds
+    sessions = row.get("same_task_sessions")
+    try:
+        same_task_sessions = None if _missing(sessions) else int(sessions)
+    except (TypeError, ValueError):
+        same_task_sessions = None
+    outflows = row.get("recent_outflows")
     return Facts(
         sender=str(row["account_id"]),
         payee=payee,
@@ -151,8 +160,12 @@ def _facts(row: pd.Series, probability: float) -> Facts:
         first_days_before_listing=float(row["payee_first_days_before_listing"]),
         p_fraud=float(probability),
         segment=str(row["segment"]),
-        behaviour_p_rarity=None,
-        same_task_sessions=None,
+        behaviour_p_rarity=_opt(row.get("behaviour_p_rarity")),
+        behaviour_guided_p=_opt(row.get("behaviour_guided_p")),
+        behaviour_top_group=None if _missing(row.get("behaviour_top_group")) else str(row.get("behaviour_top_group")),
+        behaviour_guided_group=None if _missing(row.get("behaviour_guided_group")) else str(row.get("behaviour_guided_group")),
+        same_task_sessions=same_task_sessions,
+        recent_outflows=outflows if isinstance(outflows, list) else None,
         limit_per_txn=limit_per_txn,
         habit_rare=_yes(row, "habit_rare"),
         habit_money_rare=_yes(row, "habit_money_rare"),
