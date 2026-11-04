@@ -29,8 +29,6 @@ from engine.policy.v24 import STRING_LEVEL, MemoryState, evaluate
 from sim_policy_v24 import _facts, _identities, _scores
 
 from eval.model_v21 import prepare
-from eval.policy_ablation import money_parts
-from eval.decision import with_response
 
 # Tỷ lệ ở 10 phiên nền, behaviour_eval, phân phối tổng hợp seed 42.
 FRAUD_GUIDED = 0.385
@@ -125,15 +123,18 @@ def _behaviour_columns(work: pd.DataFrame, scale: float, guided_draw: np.ndarray
     return out
 
 
-def _replay(work: pd.DataFrame, scores: dict[str, float], label: str) -> dict[str, float]:
+def _replay(work: pd.DataFrame, scores: dict[str, float], label: str, keep_rules: bool = False) -> dict[str, float]:
     state = MemoryState()
     levels = []
     strengthened = []
+    fired: list[tuple[str, ...]] = []
     total = len(work)
     for index, row in work.iterrows():
         outcome = evaluate(_facts(row, scores[str(row["session_id"])]), state)
         levels.append(STRING_LEVEL[outcome.level])
         strengthened.append(bool(outcome.strengthened))
+        if keep_rules:
+            fired.append(tuple(outcome.rules_fired))
         if index and index % 20000 == 0:
             print(f"simulation only: {label} {index}/{total}", flush=True)
     level = np.asarray(levels)
@@ -148,8 +149,84 @@ def _replay(work: pd.DataFrame, scores: dict[str, float], label: str) -> dict[st
         "strong_legit": float(strong[~fraud].mean()) if (~fraud).any() else float("nan"),
         "strong_fraud": float(strong[fraud].mean()) if fraud.any() else float("nan"),
         "levels": level,
+        "strengthened_rows": strong,
         "fraud": fraud,
+        "rules": fired,
     }
+
+
+# Ba giả định về xác suất khách dừng. Không phải số đo được.
+# Mức 2 tăng cường dùng p_stop riêng, kể cả khi khách có giám hộ.
+# Mức 3, nếu có, tính p_stop = 1 vì lệnh bị giữ.
+MONEY_ASSUMPTIONS = (
+    (
+        "conservative",
+        "response_model hiện tại; mức 1 được tính; mức 2 tăng cường = 0.12 vì mô hình không có hàng riêng",
+        {"level1": 0.08, "level2": 0.12, "strengthened": 0.12, "guardian": 0.18},
+    ),
+    (
+        "mid",
+        "mức 1 0.15, mức 2 0.40, tăng cường 0.60, giám hộ 0.60",
+        {"level1": 0.15, "level2": 0.40, "strengthened": 0.60, "guardian": 0.60},
+    ),
+    (
+        "trial-based",
+        "mức 1 0.15, mức 2 0.80 theo CTA có mục tiêu rủi ro ở Anh, tăng cường 0.85, giám hộ 0.85",
+        {"level1": 0.15, "level2": 0.80, "strengthened": 0.85, "guardian": 0.85},
+    ),
+)
+
+
+def _money_range(work: pd.DataFrame, rates: dict) -> None:
+    """Giả định. Mỗi dòng là một bộ p_stop, không phải ước lượng từ dữ liệu thật."""
+    level = np.asarray(rates["levels"])
+    strong = np.asarray(rates["strengthened_rows"])
+    fraud = rates["fraud"]
+    amount = pd.to_numeric(work["amount"], errors="coerce").fillna(0).to_numpy(dtype=float)
+    guardian = work["segment"].astype(str).eq("cao tuổi").to_numpy() & work["has_guardian"].fillna(False).to_numpy(dtype=bool)
+    damage = float(amount[fraud].sum())
+    print("money kept is an assumption, not a measured rate", flush=True)
+    print(
+        "priority: strengthened level 2 uses its own p_stop; "
+        "otherwise a level-2 guardian screen uses the guardian rate; "
+        "otherwise level 2; level 1 uses its own rate; level 3, if any, uses 1",
+        flush=True,
+    )
+    print(f"{'assumption':<16} {'p1':>6} {'p2':>6} {'p strong':>8} {'p guardian':>10} {'kept VND':>18} {'of damage':>10}", flush=True)
+    for name, note, stops in MONEY_ASSUMPTIONS:
+        p = np.zeros(len(work))
+        p[level == "banner"] = stops["level1"]
+        ordinary = (level == "medium") & ~strong
+        p[ordinary & ~guardian] = stops["level2"]
+        p[ordinary & guardian] = stops["guardian"]
+        p[(level == "medium") & strong] = stops["strengthened"]
+        p[level == "high"] = 1.0
+        kept = float((amount * p)[fraud].sum())
+        print(
+            f"{name:<16} {stops['level1']:6.2f} {stops['level2']:6.2f} {stops['strengthened']:8.2f} "
+            f"{stops['guardian']:10.2f} {kept:18,.0f} {100 * kept / damage:9.1f}%",
+            flush=True,
+        )
+        print(f"  assumption: {note}", flush=True)
+    print(f"  damage {damage:,.0f} VND, fraud sessions {int(fraud.sum())}, level 3 fraud {int(((level == 'high') & fraud).sum())}", flush=True)
+
+
+def _attribution(work: pd.DataFrame, rates: dict) -> None:
+    from collections import Counter
+
+    from engine.policy.v24 import load_policy
+
+    level2 = {rule["id"] for rule in load_policy()["rules"] if int(rule.get("level") or 0) >= 2}
+    legit = ~rates["fraud"]
+    ge2 = np.isin(rates["levels"], ["medium", "high"])
+    counts: Counter[str] = Counter()
+    for index in np.flatnonzero(legit & ge2):
+        names = sorted(rule for rule in rates["rules"][index] if rule in level2)
+        counts[" + ".join(names) if names else "episode floor only"] += 1
+    print(f"legit level>=2 {int((legit & ge2).sum())}  episode floor only {counts['episode floor only']}", flush=True)
+    print(f"{'combination':<72} {'legit >=2':>10}", flush=True)
+    for name, count in counts.most_common(20):
+        print(f"{name:<72} {count:10d}", flush=True)
 
 
 def _line(name: str, rates: dict[str, float]) -> None:
@@ -202,10 +279,10 @@ def main() -> None:
         "10 prior sessions; p=0.01 when drawn",
         flush=True,
     )
-    rates = _replay(base, scores, "base")
-    answered = with_response(base.assign(level=rates["levels"]), bundle["hang_of"], bundle["alone_of"], bundle["response"])
-    saved, damage, rate, _saved_row, _ = money_parts(answered)
-    print(f"n {len(work)}  tiền tránh được {saved:,.0f} VND ({100 * rate:.1f}% của {damage:,.0f})", flush=True)
+    rates = _replay(base, scores, "base", keep_rules=True)
+    print(f"n {len(work)}", flush=True)
+    _money_range(base, rates)
+    _attribution(base, rates)
     print(
         f"{'assumption':<42} {'legit≥1':>9} {'legit≥2':>9} {'fraud≥2':>9} {'strong legit':>12} {'strong fraud':>12}",
         flush=True,

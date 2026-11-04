@@ -19,4 +19,4 @@ Mục đích `investment` chỉ thành `purpose_high_risk` khi người nhận m
 
 Câu của `R_PURPOSE_HIGH_RISK` theo mục đích: cơ quan, phí để nhận tiền, hoặc đầu tư vào tài khoản cá nhân. Mỗi câu một ý, không gộp.
 
-Mọi quyết định mức 2 mở một episode 24 giờ và ghi các luật đã khớp vào episode. Episode đó nâng mức của lần chuyển sau tới người nhận mới, không chỉ khi có dấu hiệu bị hướng dẫn. Người nhận đã lưu không bị nâng theo episode đó. Lần sau không khớp luật mức 2 mới thì câu là episode đang mở, thẻ bằng chứng liệt kê luật gốc trong `episode_rules`, và nếu lúc này đang nghe điện thoại thì vẫn phải cúp máy trước khi tiếp tục.
+Luật mức 2 thuộc nhóm A (kiểu tiền), B (thao tác trên máy) hoặc C (mục đích) mở một episode 24 giờ và ghi các luật đã khớp. Nhóm D (`R_RECIPIENT_UNUSUAL`, `R_SIMO`, `R_MODEL_HIGH`) giữ lệnh đó trong 30 phút và không mở episode. Episode nâng mức của lần chuyển sau tới người nhận mới. Người nhận đã lưu không bị nâng theo episode đó. Lần sau không khớp luật mức 2 mới thì câu là episode đang mở, thẻ bằng chứng liệt kê luật gốc trong `episode_rules`, và nếu lúc này đang nghe điện thoại thì vẫn phải cúp máy trước khi tiếp tục.

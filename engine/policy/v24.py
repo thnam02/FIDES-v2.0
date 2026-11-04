@@ -174,6 +174,8 @@ PURPOSE_HEADLINES = {
 }
 EPISODE_HEADLINE = "Bạn vừa có một giao dịch bị tạm dừng vì dấu hiệu lừa đảo. Các giao dịch tiếp theo cũng được kiểm tra kỹ."
 GROUP_ORDER = ("A", "B", "C", "D")
+# A tiền, B thao tác trên máy, C mục đích. D giữ lệnh đó, không mở episode.
+EPISODE_GROUPS = frozenset({"A", "B", "C"})
 
 
 def lock_minutes_setting() -> int:
@@ -742,6 +744,11 @@ def _expire(doc: dict, now: datetime) -> None:
         doc["customer_until"] = ""
 
 
+def _opens_episode(fired: list[dict]) -> bool:
+    """Nhóm A, B, C mức 2 mở episode 24 giờ. Nhóm D chỉ giữ lệnh hiện tại."""
+    return any(str(rule.get("group") or "") in EPISODE_GROUPS and int(rule.get("level") or 0) == 2 for rule in fired)
+
+
 def _joins(doc: dict, facts: Facts, signals: dict[str, Signal], funds: list[dict], now: datetime) -> bool:
     if not doc.get("episode_id") or not doc.get("expires_at"):
         return False
@@ -932,7 +939,7 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
     own = max(rule_level, user_floor)
     level = max(own, episode_floor, customer_floor)
     in_episode = joined
-    if own >= 2 and not joined:
+    if _opens_episode(fired) and not joined:
         doc["episode_id"] = f"ep-{facts.sender[:12]}-{int(clock.timestamp() * 1000)}-{facts.payee[:8]}"
         doc["opened_at"] = _stamp(clock)
         doc["expires_at"] = _stamp(clock + timedelta(hours=float(threshold("episode_hours"))))
