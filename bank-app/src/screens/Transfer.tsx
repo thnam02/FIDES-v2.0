@@ -691,7 +691,7 @@ export function ResultScreen() {
   const callActive = useCallActive()
   const [phase, setPhase] = useState<"choose" | "paused" | "done" | "cancelled">("choose")
   const [notice, setNotice] = useState<string | null>(null)
-  const [guardianSent, setGuardianSent] = useState(false)
+  const [guardianNote, setGuardianNote] = useState<{ text: string; error: boolean } | null>(null)
   const [bankNow, setBankNow] = useState<number | null>(null)
   useEffect(() => {
     let stop = false
@@ -805,10 +805,13 @@ export function ResultScreen() {
                 <Button testID="choice-guardian" outline label={GUARDIAN_BUTTON} onPress={() => {
                   if (sendGuardian.isPending) return
                   sendGuardian.mutate(outcome.transferId, {
-                    onSuccess: () => { setNotice(null); setGuardianSent(true) },
-                    onError: (error) => setNotice(error.message),
+                    onSuccess: () => setGuardianNote({ text: GUARDIAN_SENT, error: false }),
+                    onError: (error) => setGuardianNote({ text: error.message, error: true }),
                   })
                 }} />
+              ) : null}
+              {showGuardian && guardianNote ? (
+                <Text testID={guardianNote.error ? "guardian-refused" : "guardian-sent"} style={{ color: guardianNote.error ? colors.danger : colors.navy, fontSize: type.body }}>{guardianNote.text}</Text>
               ) : null}
               <Button testID="choice-cancel" outline label={CANCEL_BUTTON} onPress={() => {
                 respond.mutate(
@@ -834,7 +837,6 @@ export function ResultScreen() {
           {phase === "cancelled" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.cancelledTransfer}</Text> : null}
           {phase === "done" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.success}</Text> : null}
           {phase !== "choose" ? <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} /> : null}
-          {guardianSent ? <Text testID="guardian-sent" style={{ color: colors.navy, fontSize: type.body }}>{GUARDIAN_SENT}</Text> : null}
           {notice ? <Text style={{ color: colors.danger }}>{notice}</Text> : null}
           {choice.isError ? <Text style={{ color: colors.danger }}>{choice.error.message}</Text> : null}
         </View>
