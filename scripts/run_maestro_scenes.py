@@ -24,6 +24,7 @@ TRUONG = ("A0002119",)
 LE = ("A0031239",)
 # Ngược thứ tự A…F để mức không phụ thuộc cảnh chạy trước.
 ORDER = (
+    ("scene-f-refused.yaml", HUYNH),
     ("scene-f.yaml", HUYNH),
     ("scene-e.yaml", HOANG),
     ("scene-d.yaml", HOANG),

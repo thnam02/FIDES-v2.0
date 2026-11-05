@@ -85,7 +85,7 @@ Gọi thật và giữ máy. Gửi lại: gõ `0902101002`, `120000000`, mục �
 
 Màn hình mức 2, một nhóm, chưa tăng cường. Câu lớn: “Bạn vừa rút tiền tiết kiệm hoặc nhận tiền và đang chuyển cho người lạ trong lúc nghe điện thoại. Đây là cách kẻ giả danh công an thường lừa tiền.” Câu lớn đã nói cuộc gọi, tiền tiết kiệm và người lạ, nên hai dòng lý do là: “Bạn đang chuyển gần hết số dư.” và “Số tiền lớn gấp nhiều lần mức bạn thường chuyển.” “Xem chi tiết” mở ba dòng câu lớn đã nói: cuộc gọi đang diễn ra, sổ tiết kiệm vừa tất toán, chưa từng chuyển tới người nhận này. Dòng khoá: “Hãy cúp máy trước. Công an, ngân hàng và cơ quan nhà nước không bao giờ yêu cầu chuyển tiền qua điện thoại.”
 
-Nút, từ trên xuống: “Gọi tổng đài ngân hàng”, “Tạm dừng để xác minh”, “Huỷ”, “Tiếp tục”. “Tiếp tục” bị khoá vì máy còn gọi. Không có nút giám hộ: Huỳnh có người giám hộ nhưng sau reset chưa lưu sự đồng ý.
+Nút, từ trên xuống: “Gọi tổng đài ngân hàng”, “Tạm dừng để xác minh”, “Gửi yêu cầu cho người giám hộ”, “Huỷ”, “Tiếp tục”. “Tiếp tục” bị khoá vì máy còn gọi. Người giám hộ của bà Mận được `demo_reset.sh` lưu sẵn, đã đồng ý từ trước. Nút giám hộ chỉ gửi yêu cầu, không nhả tiền; chỉ người giám hộ xác nhận trên máy của họ mới nhả. Không bấm nút này trong cảnh 3.
 
 Bấm “Tạm dừng để xác minh”. Màn hình: “Lệnh đang được giữ lại để bạn tự kiểm tra.” và số tổng đài `1900 54 54 13`. 120 triệu vẫn bị giữ. Bấm “Về trang chủ”. Không cúp máy.
 
@@ -101,7 +101,7 @@ Màn hình mức 2, tăng cường. Lệnh khớp nhóm A (cuộc gọi, sổ ti
 
 Câu lớn đã nói mục đích, nên hai dòng lý do là: “Có cuộc gọi đang diễn ra trong phiên này.” và “Sổ tiết kiệm vừa được tất toán.” “Xem chi tiết” mở thêm bốn dòng: chuyển gần hết số dư, số tiền lớn gấp nhiều lần thường lệ, chưa từng chuyển tới người nhận này, và dòng mục đích.
 
-Hai dòng khoá: dòng cúp máy, và “Giao dịch có nhiều dấu hiệu lừa đảo. Gọi tổng đài để xác nhận ngay, hoặc nhờ người giám hộ xác nhận.” Nút giống cảnh 3. “Tiếp tục” đổi thành đếm ngược “Có thể tiếp tục sau …” (khoá 30 phút) và không bấm được.
+Hai dòng khoá: dòng cúp máy, và “Giao dịch có nhiều dấu hiệu lừa đảo. Gọi tổng đài để xác nhận ngay, hoặc nhờ người giám hộ xác nhận.” Nút giống cảnh 3, có cả “Gửi yêu cầu cho người giám hộ”. “Tiếp tục” đổi thành đếm ngược “Có thể tiếp tục sau …” (khoá 30 phút) và không bấm được.
 
 Cúp máy thật. Quay lại app. Dòng cúp máy mất. Dòng tăng cường và đếm ngược còn. “Tiếp tục” vẫn khoá. Nếu lệnh tiếp tục được gửi, máy chủ trả “Chưa hết thời gian giữ để xác minh.”
 

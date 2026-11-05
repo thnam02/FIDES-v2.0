@@ -1,26 +1,9 @@
-# Scene F — mục đích cơ quan nhà nước. Mức 2, người thân xác nhận.
+# Scene F — mục đích cơ quan nhà nước. Mức 2. Người giám hộ đã đồng ý từ trước (demo_reset) nên xác nhận được.
 appId: com.hainamtran.saobank
 ---
 - launchApp:
     clearKeychain: true
 - tapOn: ".*Huỳnh Thị Mận.*"
-- tapOn: ".*Cá nhân.*"
-- tapOn: "Người thân bảo vệ"
-- tapOn:
-    id: "guardian-phone"
-- inputText: "0901234567"
-- tapOn:
-    id: "guardian-relation"
-- inputText: "con"
-- hideKeyboard:
-    optional: true
-- tapOn:
-    id: "guardian-consent"
-- tapOn:
-    id: "guardian-save"
-- assertVisible: "Đã lưu người thân"
-- tapOn: "Quay lại"
-- tapOn: "Trang chủ, tab, 1 of 5"
 - repeat:
     times: 7
     commands:
@@ -62,6 +45,13 @@ appId: com.hainamtran.saobank
 - tapOn:
     id: "confirm-transfer"
 - assertVisible: "Tạm dừng để xác minh"
+- scrollUntilVisible:
+    element:
+      id: "choice-guardian"
+    direction: DOWN
+- tapOn:
+    id: "choice-guardian"
+- assertVisible: "Đã gửi yêu cầu cho người giám hộ."
 - launchApp
 - tapOn: "GH, Người giám hộ.*"
 - extendedWaitUntil:

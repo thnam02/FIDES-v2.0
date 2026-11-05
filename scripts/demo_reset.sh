@@ -173,7 +173,12 @@ if [ "$bank_code" != "200" ]; then
   exit 22
 fi
 # Lệnh treo và yêu cầu giám hộ của bốn khách demo. Không đụng sổ lịch sử đã xong.
+# Người giám hộ của bà Mận đã đồng ý từ 1/9, quá thời gian chờ GUARDIAN_COOLING_HOURS.
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+ALTER TABLE bank.guardians ADD COLUMN IF NOT EXISTS consent boolean NOT NULL DEFAULT false;
+UPDATE bank.guardians
+SET consent = true, registered_at = TIMESTAMPTZ '2026-09-01T09:00:00+07:00'
+WHERE account_id IN ('A0000623', 'A0050272', 'A0072556', 'A0077690');
 DELETE FROM bank.guardian_requests
 WHERE account_id IN (
     'A0000623', 'A0050272', 'A0072556', 'A0077690',

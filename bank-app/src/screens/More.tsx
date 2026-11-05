@@ -292,6 +292,7 @@ export function GuardianRequestScreen() {
         }}
       />
       {released ? <Text style={{ color: "#2E7D32", fontSize: 22, fontWeight: "700", textAlign: "center" }}>{copy.released}</Text> : null}
+      {confirm.isError ? <Text testID="guardian-refused" style={{ color: colors.danger, fontSize: largeText ? 20 : 16, textAlign: "center" }}>{confirm.error.message}</Text> : null}
     </Screen>
   )
 }

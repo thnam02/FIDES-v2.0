@@ -1784,8 +1784,9 @@ def send_guardian_request(transfer_id: str) -> dict:
             raise HTTPException(409, LEVEL3_DETAIL)
         if transfer["funds_status"] != "held" or transfer["status"] not in LEVEL2_HELD:
             raise HTTPException(409, NOT_HELD_DETAIL)
-        if not _guardian_consented(conn, transfer["from_account"]):
-            raise HTTPException(409, "Chưa lưu sự đồng ý của người giám hộ.")
+        refusal = _guardian_refusal(conn, transfer["from_account"], CLOCK.now())
+        if refusal:
+            raise HTTPException(409, refusal)
         request_id = _open_guardian_request(conn, transfer)
         conn.commit()
     log_choice(transfer["decision_id"], "guardian_request", 0)
@@ -2019,6 +2020,38 @@ def _guardian_consented(conn, account_id: str) -> bool:
     return bool(row and row["consent"])
 
 
+NO_GUARDIAN_DETAIL = "Chưa lưu sự đồng ý của người giám hộ."
+
+
+def guardian_cooling_hours() -> float:
+    try:
+        hours = float(os.environ.get("GUARDIAN_COOLING_HOURS", "24"))
+    except ValueError:
+        return 24.0
+    return max(hours, 0.0)
+
+
+def cooling_detail(hours: float) -> str:
+    shown = int(hours) if float(hours).is_integer() else hours
+    return f"Người giám hộ mới được thêm hoặc vừa đổi, chưa thể xác nhận trong {shown} giờ đầu."
+
+
+def _guardian_refusal(conn, account_id: str, now: datetime) -> str | None:
+    """None khi người giám hộ được xác nhận. Người mới thêm hoặc vừa đổi phải chờ GUARDIAN_COOLING_HOURS."""
+    _ensure_guardian_consent(conn)
+    row = conn.execute("SELECT consent, registered_at FROM bank.guardians WHERE account_id = %s", (account_id,)).fetchone()
+    if not row or not row["consent"]:
+        return NO_GUARDIAN_DETAIL
+    hours = guardian_cooling_hours()
+    registered = row["registered_at"]
+    if hours > 0 and registered is not None:
+        if registered.tzinfo is None:
+            registered = registered.replace(tzinfo=now.tzinfo or ICT)
+        if now - registered < timedelta(hours=hours):
+            return cooling_detail(hours)
+    return None
+
+
 @app.get("/config")
 def bank_config() -> dict:
     from engine.policy.v24 import load_policy
@@ -2112,12 +2145,22 @@ def guardian(body: GuardianIn) -> dict:
         if found is None:
             raise HTTPException(404, "không có tài khoản")
         _ensure_guardian_consent(conn)
+        # Đổi số, đổi quan hệ hoặc vừa đồng ý thì tính lại từ đầu thời gian chờ.
         conn.execute(
             """
             INSERT INTO bank.guardians (account_id, guardian_phone_hash, relation, registered_at, consent)
             VALUES (%s,%s,%s,%s,true)
             ON CONFLICT (account_id) DO UPDATE
-            SET guardian_phone_hash=EXCLUDED.guardian_phone_hash, relation=EXCLUDED.relation, consent=true
+            SET guardian_phone_hash = EXCLUDED.guardian_phone_hash,
+                relation = EXCLUDED.relation,
+                consent = true,
+                registered_at = CASE
+                    WHEN bank.guardians.consent
+                     AND bank.guardians.guardian_phone_hash IS NOT DISTINCT FROM EXCLUDED.guardian_phone_hash
+                     AND bank.guardians.relation IS NOT DISTINCT FROM EXCLUDED.relation
+                    THEN bank.guardians.registered_at
+                    ELSE EXCLUDED.registered_at
+                END
             """,
             (body.account_id, phone_hash, body.relation, now),
         )
@@ -2171,11 +2214,16 @@ def confirm_guardian(request_id: str) -> dict:
         transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s FOR UPDATE", (row["transfer_id"],)).fetchone()
         if transfer is None:
             raise HTTPException(404, "không có lệnh")
-        reason = _release_block(transfer, now, None, guardian=True)
+        reason = _release_block(transfer, now, None, guardian=True) or _guardian_refusal(conn, transfer["from_account"], now)
         if reason:
-            raise HTTPException(409, reason)
-        _settle(conn, transfer, "released", "released", now)
+            refused = reason
+        else:
+            refused = None
+            _settle(conn, transfer, "released", "released", now)
         conn.commit()
+    if refused:
+        log_choice(transfer["decision_id"], "guardian_refused", 0)
+        raise HTTPException(409, refused)
     log_choice(transfer["decision_id"], "guardian_confirm", 0)
     if transfer["decision_id"]:
         _engine_note("/respond", {"decision_id": transfer["decision_id"], "guardian_confirm": True, "ts": now.isoformat()})

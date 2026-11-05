@@ -1,0 +1,85 @@
+# Scene F, người giám hộ vừa thêm: kẻ gian bảo khách thêm "người nhà" ngay trước lệnh. Mức 2 vẫn giữ tiền,
+# cả nút của khách lẫn bàn người giám hộ đều bị từ chối trong GUARDIAN_COOLING_HOURS.
+appId: com.hainamtran.saobank
+---
+- launchApp:
+    clearKeychain: true
+- tapOn: ".*Huỳnh Thị Mận.*"
+- tapOn: ".*Cá nhân.*"
+- tapOn: "Người thân bảo vệ"
+- tapOn:
+    id: "guardian-phone"
+- inputText: "0907654321"
+- tapOn:
+    id: "guardian-relation"
+- inputText: "con"
+- hideKeyboard:
+    optional: true
+- tapOn:
+    id: "guardian-consent"
+- tapOn:
+    id: "guardian-save"
+- assertVisible: "Đã lưu người thân"
+- tapOn: "Quay lại"
+- tapOn: "Trang chủ, tab, 1 of 5"
+- repeat:
+    times: 7
+    commands:
+      - tapOn: "BVC BANK"
+- tapOn:
+    id: "call-stranger"
+- tapOn: "Chuyển tiền"
+- tapOn:
+    id: "new-account-open"
+- tapOn:
+    id: "new-account"
+- inputText: "ZMED230000000001"
+- tapOn:
+    id: "new-account-go"
+- tapOn:
+    id: "amount"
+- eraseText: 12
+- inputText: "23000000"
+- tapOn:
+    id: "amount-dismiss"
+- scrollUntilVisible:
+    element:
+      id: "purpose-open"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "purpose-open"
+- tapOn: "Cơ quan nhà nước / công an yêu cầu chuyển"
+- scrollUntilVisible:
+    element:
+      id: "continue-transfer"
+    direction: DOWN
+- tapOn:
+    id: "continue-transfer"
+- scrollUntilVisible:
+    element:
+      id: "confirm-transfer"
+    direction: DOWN
+- tapOn:
+    id: "confirm-transfer"
+- assertVisible: "Tạm dừng để xác minh"
+- scrollUntilVisible:
+    element:
+      id: "choice-guardian"
+    direction: DOWN
+- tapOn:
+    id: "choice-guardian"
+- assertVisible: ".*chưa thể xác nhận trong 24 giờ đầu.*"
+- launchApp
+- tapOn: "GH, Người giám hộ.*"
+- extendedWaitUntil:
+    visible: ".*Huỳnh Thị Mận.*"
+    timeout: 10000
+- scrollUntilVisible:
+    element: ".*23.000.000.*"
+    direction: DOWN
+    timeout: 20000
+- tapOn: ".*23.000.000.*"
+- tapOn: "Tôi xác nhận, cho chuyển"
+- assertVisible: ".*chưa thể xác nhận trong 24 giờ đầu.*"
+- assertNotVisible: "Đã cho chuyển"

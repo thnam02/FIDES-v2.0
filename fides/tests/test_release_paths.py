@@ -79,9 +79,7 @@ def guardian_request(transfer_id: str) -> dict | None:
 
 @pytest.fixture(scope="module", autouse=True)
 def huynh_ready():
-    """Mrs. Mận with a consented guardian and the savings book already liquidated."""
-    if os.environ.get("FIDES_STACK_REGISTER_GUARDIAN", "0") == "1":
-        ok("POST", "/guardian", {"account_id": HUYNH, "phone": "0901234567", "relation": "con", "consent": True})
+    """Mrs. Mận's guardian is seeded by demo_reset.sh, past the cooling-off. Liquidate the savings book once."""
     ok("POST", "/savings/liquidate", {"account_id": HUYNH, "amount": 150_000_000})
     yield
 
@@ -195,3 +193,19 @@ def test_guardian_confirms_an_open_request_once_even_inside_the_lock():
     status, payload = call("POST", f"/guardian/requests/{request['id']}/confirm")
     assert status == 409, payload
     assert balance("ZLANB40000000002") == payee_before + 4_000_000
+
+
+def test_a_guardian_added_during_the_scam_cannot_approve():
+    """Last in this module: it replaces the seeded guardian."""
+    out = held_level2("ZVAY000000000001", amount=2_500_000)
+    tid = out["transfer_id"]
+    request = guardian_request(tid)
+    assert request is not None
+    ok("POST", "/guardian", {"account_id": HUYNH, "phone": "0907654321", "relation": "con", "consent": True})
+    payee_before = balance("ZVAY000000000001")
+    status, payload = call("POST", f"/transfer/{tid}/guardian-request")
+    assert status == 409 and "chưa thể xác nhận" in payload["detail"], payload
+    status, payload = call("POST", f"/guardian/requests/{request['id']}/confirm")
+    assert status == 409 and "chưa thể xác nhận" in payload["detail"], payload
+    assert balance("ZVAY000000000001") == payee_before
+    assert guardian_request(tid)["funds_status"] == "held"

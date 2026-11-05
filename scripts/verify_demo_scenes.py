@@ -138,6 +138,7 @@ def main() -> None:
         and got["visible"] == ["Bạn đang chuyển gần hết số dư.", "Số tiền lớn gấp nhiều lần mức bạn thường chuyển."],
         got,
     )
+    check("3 guardian button offered (seeded guardian)", "guardian_confirm" in ((held.get("decision") or {}).get("actions") or []), (held.get("decision") or {}).get("actions"))
     status, paused = call("POST", f"/decisions/dec-{held.get('transfer_id')}/choice", {"choice": "pause", "response_ms": 1000})
     check("3 pause keeps money held", status == 200 and paused.get("funds_status") == "held", paused)
 
@@ -154,6 +155,7 @@ def main() -> None:
         and got["visible"] == ["Có cuộc gọi đang diễn ra trong phiên này.", "Sổ tiết kiệm vừa được tất toán."],
         got,
     )
+    check("4 guardian button offered (seeded guardian)", "guardian_confirm" in ((step4.get("decision") or {}).get("actions") or []), (step4.get("decision") or {}).get("actions"))
     tid = step4.get("transfer_id")
     status, rejected = call("POST", f"/transfer/{tid}/respond", {"proceed": True, "call": ENDED})
     check("4 proceed after hang-up rejected", status == 409, rejected)
