@@ -14,10 +14,16 @@ Câu lớn mức 2 lấy theo nhóm: C (mục đích) trước B (thao tác khi 
 
 ## Trước khi mở app
 
-- Từ thư mục SEDIF, bật engine và bank. Script dừng tiến trình đang giữ cổng 8091 và 8092, bật lại tách khỏi terminal, ghi log vào `logs/engine.log` và `logs/bank.log`, đợi health, chấm thử một lệnh rồi in `ready`. Đóng editor hay terminal không tắt hai server.
+- Từ thư mục SEDIF, bật engine và bank. Script kiểm tra Postgres và Redis trước. Redis tắt thì tự bật `redis-server`. Postgres không trả lời thì dừng và in lệnh sửa (`brew services restart postgresql@16`). Không bật Postgres của docker compose, vì cơ sở đó không có `fides_w1`. Sau đó script dừng tiến trình đang giữ cổng 8091 và 8092, bật lại tách khỏi terminal, ghi log vào `logs/engine.log` và `logs/bank.log`, đợi health, chấm thử một lệnh rồi in `ready`. Đóng editor hay terminal không tắt hai server.
 
 ```sh
 sh scripts/demo_up.sh
+```
+
+- Mở một terminal khác và giữ chạy suốt buổi demo, để Mac không ngủ. Ctrl+C sau demo.
+
+```sh
+caffeinate -d
 ```
 
 - Máy gọi đã sẵn, có số của điện thoại demo. Gọi thật ở cảnh 2, cảnh 3 (lệnh 120 triệu sau tất toán), cảnh 4 và cảnh 5. Từ cảnh 3 sang cảnh 4 không cúp máy.
@@ -38,6 +44,12 @@ sh scripts/demo_reset.sh
 ```
 
 Script chạy khoảng 5 phút. Đợi dòng `ready`. Không gọi lại cho đến khi xong năm cảnh.
+
+Sau demo, dừng engine và bank theo pid trong `logs/`. Postgres và Redis trên máy vẫn chạy.
+
+```sh
+sh scripts/demo_down.sh
+```
 
 ## 1. Hoàng Văn Tâm, mức 0
 
