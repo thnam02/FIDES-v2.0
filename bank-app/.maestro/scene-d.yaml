@@ -37,4 +37,6 @@ appId: com.hainamtran.saobank
 - tapOn:
     id: "confirm-transfer"
 - assertVisible: "Tạm dừng để xác minh"
+- tapOn:
+    id: "reasons-toggle"
 - assertVisible: ".*ghi hoặc chiếu.*"

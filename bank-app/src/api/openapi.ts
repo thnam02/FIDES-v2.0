@@ -743,6 +743,8 @@ export interface components {
         EvidenceCard: {
             signals: components["schemas"]["Signal"][];
             reasons_vi: string[];
+            /** @description Dòng trong reasons_vi mà câu lớn đã nói. Màn hình không mở sẵn các dòng này. */
+            restated_vi?: string[];
             /** @enum {string} */
             baseline_quality: "low" | "medium" | "high" | "none";
             episode_id: string;

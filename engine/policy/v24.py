@@ -176,6 +176,29 @@ EPISODE_HEADLINE = "Bạn vừa có một giao dịch bị tạm dừng vì dấ
 GROUP_ORDER = ("A", "B", "C", "D")
 # A tiền, B thao tác trên máy, C mục đích. D giữ lệnh đó, không mở episode.
 EPISODE_GROUPS = frozenset({"A", "B", "C"})
+# Câu lớn mức 2: mục đích, rồi thao tác khi nghe máy, rồi dòng tiền, rồi người nhận.
+HEADLINE_GROUP_ORDER = ("C", "B", "A", "D")
+# Câu lớn của luật này không nhắc cuộc gọi, người nhận hay kiểu thao tác cụ thể.
+HEADLINE_SAYS: dict[str, tuple[str, ...]] = {"R_BEHAVIOUR_GUIDED": ()}
+# Dòng lý do cụ thể nhất trước. Mã không có trong bảng đứng cuối, giữ thứ tự cũ.
+REASON_RANK = {
+    "purpose_high_risk": 0,
+    "behaviour_guided": 1,
+    "behaviour_rare": 1,
+    "screen_capture_active": 1,
+    "call_active": 2,
+    "call_ended": 2,
+    "funds_mobilised": 3,
+    "inflow_passthrough": 3,
+    "habit_money_rare": 4,
+    "habit_rare": 4,
+    "new_payee": 5,
+    "recipient_unusual": 5,
+    "recipient_simo_flag": 5,
+    "simo_info": 5,
+    "recipient_bank_confirmed_mule": 5,
+    "recipient_le_confirmed_case": 5,
+}
 
 
 def lock_minutes_setting() -> int:
@@ -201,18 +224,24 @@ def intervention_of(fired: list[dict], level: int, purpose: str | None = None) -
     strengthened = len(groups) >= 2
     hangup = any(bool(rule.get("needs_call")) for rule in level2)
     headline = ""
+    source: dict | None = None
     for rule in fired:
         if int(rule.get("level") or 0) < 3:
             continue
         text = _rule_headline(str(rule.get("id")), purpose)
         if text:
-            headline = text
+            headline, source = text, rule
             break
     if not headline:
-        for rule in level2:
-            text = _rule_headline(str(rule.get("id")), purpose)
-            if text:
-                headline = text
+        for group in HEADLINE_GROUP_ORDER:
+            for rule in level2:
+                if str(rule.get("group") or "") != group:
+                    continue
+                text = _rule_headline(str(rule.get("id")), purpose)
+                if text:
+                    headline, source = text, rule
+                    break
+            if headline:
                 break
     if not headline and level >= 1:
         for rule in fired:
@@ -220,7 +249,7 @@ def intervention_of(fired: list[dict], level: int, purpose: str | None = None) -
                 continue
             text = LEVEL1_HEADLINES.get(str(rule.get("id")))
             if text:
-                headline = text
+                headline, source = text, rule
                 break
         if not headline:
             headline = LEVEL1_HEADLINE
@@ -230,7 +259,18 @@ def intervention_of(fired: list[dict], level: int, purpose: str | None = None) -
         "continue_requires_hangup": hangup,
         "lock_minutes": lock_minutes_setting() if strengthened else 0,
         "headline": headline,
+        "headline_signals": headline_signals(source),
     }
+
+
+def headline_signals(rule: dict | None) -> list[str]:
+    """Tín hiệu mà câu lớn đã nói. Dòng lý do của các tín hiệu này không cần hiện lại."""
+    if rule is None:
+        return []
+    rule_id = str(rule.get("id"))
+    if rule_id in HEADLINE_SAYS:
+        return list(HEADLINE_SAYS[rule_id])
+    return list(rule.get("all_present") or []) + list(rule.get("any_present") or [])
 
 
 @dataclass
@@ -257,6 +297,7 @@ class Outcome:
     lock_minutes: int = 0
     lock_until: datetime | None = None
     headline: str = ""
+    restated_vi: list[str] = field(default_factory=list)
     mobilised_funds: list[dict] = field(default_factory=list)
     episode_rules: list[str] = field(default_factory=list)
 
@@ -265,6 +306,7 @@ class Outcome:
         return {
             "signals": [item.as_dict() for item in self.signals],
             "reasons_vi": list(self.reasons_vi),
+            "restated_vi": list(self.restated_vi),
             "baseline_quality": self.baseline_quality,
             "episode_id": self.episode_id,
             "behaviour_score": self.behaviour_score,
@@ -819,7 +861,7 @@ def _reasons(facts: Facts, rules: list[dict], signals: dict[str, Signal], funds:
             add("simo_info", SIMO_INFO_TEXT)
         if rule["id"] == "R_SIMO":
             add(contract_code("recipient_simo_flag"), SIMO_TEXT)
-    return rows
+    return sorted(rows, key=lambda row: REASON_RANK.get(row[0], len(REASON_RANK)))
 
 
 def _behaviour_phrase(facts: Facts, group: str | None = None) -> str:
@@ -984,8 +1026,11 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
     carried = joined and episode_floor >= 2 and level >= 2 and not any(int(rule.get("level") or 0) >= 2 for rule in fired)
     if carried:
         view["headline"] = EPISODE_HEADLINE
+        view["headline_signals"] = []
         if facts.call_state == "active":
             view["continue_requires_hangup"] = True
+    said = {contract_code(name, facts.call_state) for name in view["headline_signals"]}
+    restated = [text for code, text in reason_rows if code in said]
     lock_until = clock + timedelta(minutes=view["lock_minutes"]) if view["lock_minutes"] else None
     return Outcome(
         level=level,
@@ -1010,6 +1055,7 @@ def evaluate(facts: Facts, state: MemoryState | RedisState | None = None, behavi
         lock_minutes=view["lock_minutes"],
         lock_until=lock_until,
         headline=view["headline"],
+        restated_vi=restated,
         mobilised_funds=funds,
         episode_rules=list(doc.get("rules") or []) if in_episode else [],
     )

@@ -12,6 +12,7 @@ type Outcome = {
   actions: string[]
   reasons: components["schemas"]["Reason"][]
   reasonsVi: string[]
+  restatedVi?: string[]
   signalsPresent: string[]
   funds_status: "held" | "released" | "cancelled"
   gate: "none" | "guardian_confirm_requested" | "short_wait"
