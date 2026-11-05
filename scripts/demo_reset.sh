@@ -2,11 +2,8 @@
 # Dừng đồng hồ, xoá dữ liệu demo sau 20/9, nạp lại RDB và persona, đưa đồng hồ về 09:00.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-if [ -f "$ROOT/.env" ]; then
-  set -a
-  . "$ROOT/.env"
-  set +a
-fi
+. "$ROOT/scripts/load_env.sh"
+load_env "$ROOT/.env"
 BANK=${BANK_URL:-http://127.0.0.1:${BANK_PORT:-8092}}
 ENGINE=${ENGINE_URL:-http://127.0.0.1:${ENGINE_PORT:-8091}}
 DATABASE_URL=${DATABASE_URL:-postgresql://hainamtran@localhost:5432/fides_w1}

@@ -3,11 +3,8 @@
 # Dừng tiến trình đang nghe hai cổng đó trước. Đợi health, chấm thử một lệnh, rồi in ready.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-if [ -f "$ROOT/.env" ]; then
-  set -a
-  . "$ROOT/.env"
-  set +a
-fi
+. "$ROOT/scripts/load_env.sh"
+load_env "$ROOT/.env"
 PY=${PYTHON:-$ROOT/fides-sim/.venv/bin/python}
 ENGINE_PORT=${ENGINE_PORT:-8091}
 BANK_PORT=${BANK_PORT:-8092}
@@ -114,7 +111,8 @@ detach() {
   log=$1
   dir=$2
   shift 2
-  (cd "$dir" && nohup "$PY" -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@" >"$log" 2>&1 </dev/null &)
+  # exec: no shell stays behind holding the caller's stdout (a pipe to tee would never close).
+  (cd "$dir" || exit 1; exec nohup "$PY" -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@" >"$log" 2>&1 </dev/null) &
 }
 
 # Python của Homebrew chạy lại chính nó trong tiến trình con. Pid lấy từ tiến trình đang nghe cổng.

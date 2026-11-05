@@ -3,11 +3,8 @@
 # Reads .env like the demo scripts. Never prints key values. Exit 1 when any check fails.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-if [ -f "$ROOT/.env" ]; then
-  set -a
-  . "$ROOT/.env"
-  set +a
-fi
+. "$ROOT/scripts/load_env.sh"
+load_env "$ROOT/.env"
 PY=${PYTHON:-$ROOT/fides-sim/.venv/bin/python}
 DATABASE_URL=${DATABASE_URL:-postgresql://$(whoami)@localhost:5432/fides_w1}
 REDIS_URL=${REDIS_URL:-redis://localhost:6379/15}

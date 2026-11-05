@@ -5,7 +5,7 @@ import { AlertTriangle, Camera, Check, ChevronDown, ClipboardPaste, Contact, Cre
 import { FidesCallNotice, FidesSession, sessionRecorder, useAccountInput } from "fides-sdk"
 
 import { BANK_URL } from "../api/client"
-import { useAccount, useBeneficiaries, useCancelLevel1, useChoice, useConfirmLevel1, usePurposePolicy, useRespond, useTransfer } from "../api/queries"
+import { useAccount, useBeneficiaries, useCancelLevel1, useChoice, useConfirmLevel1, usePurposePolicy, useRespond, useSendGuardianRequest, useTransfer } from "../api/queries"
 import { forgetTransferKey } from "../api/idempotency"
 import { GUIDED_FEATURES } from "../dev/guided"
 import { rememberSession } from "../dev/lastSession"
@@ -18,7 +18,7 @@ import { addMethod } from "../addMethod"
 import { deviceState } from "../deviceState"
 import { level1AppStateCancels, level1ConfirmRejected, level1OnLeave } from "../level1Leave"
 import { payeeGate } from "../payeeLookup"
-import { CANCEL_BUTTON, continueView, FAKE_RELATIVE_NOTE, HOTLINE_BUTTON, LESS_REASONS, level1Headline, MORE_REASONS, PAUSE_BUTTON, showFakeRelative, splitReasons, STRENGTHENED_HEADLINE_NOTE } from "../intervention"
+import { CANCEL_BUTTON, continueView, FAKE_RELATIVE_NOTE, GUARDIAN_BUTTON, GUARDIAN_SENT, HOTLINE_BUTTON, LESS_REASONS, level1Headline, MORE_REASONS, PAUSE_BUTTON, showFakeRelative, splitReasons, STRENGTHENED_HEADLINE_NOTE } from "../intervention"
 import { resultRoute } from "../routeDecision"
 import { DEMO, useBank, type EntryDetail } from "../store"
 import { Button, Card, colors, Header, Screen, useType } from "../ui/parts"
@@ -684,12 +684,14 @@ export function ResultScreen() {
   const outcome = useBank((state) => state.outcome)
   const choice = useChoice()
   const respond = useRespond()
+  const sendGuardian = useSendGuardianRequest()
   const policy = usePurposePolicy()
   const shownAt = useRef(Date.now())
   const type = useType()
   const callActive = useCallActive()
   const [phase, setPhase] = useState<"choose" | "paused" | "done" | "cancelled">("choose")
   const [notice, setNotice] = useState<string | null>(null)
+  const [guardianSent, setGuardianSent] = useState(false)
   const [bankNow, setBankNow] = useState<number | null>(null)
   useEffect(() => {
     let stop = false
@@ -800,11 +802,12 @@ export function ResultScreen() {
               <Button testID="choice-hotline" outline label={HOTLINE_BUTTON} onPress={() => void Linking.openURL(`tel:${tel}`)} />
               <Button testID="choice-pause" label={PAUSE_BUTTON} onPress={() => pick("pause")} />
               {showGuardian ? (
-                <Button testID="choice-guardian" outline label="Nhờ người giám hộ xác nhận" onPress={() => {
-                  respond.mutate(
-                    { id: outcome.transferId, body: { guardian_confirm: true } },
-                    { onSuccess: () => setPhase("done"), onError: (error) => setNotice(error.message) },
-                  )
+                <Button testID="choice-guardian" outline label={GUARDIAN_BUTTON} onPress={() => {
+                  if (sendGuardian.isPending) return
+                  sendGuardian.mutate(outcome.transferId, {
+                    onSuccess: () => { setNotice(null); setGuardianSent(true) },
+                    onError: (error) => setNotice(error.message),
+                  })
                 }} />
               ) : null}
               <Button testID="choice-cancel" outline label={CANCEL_BUTTON} onPress={() => {
@@ -831,6 +834,7 @@ export function ResultScreen() {
           {phase === "cancelled" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.cancelledTransfer}</Text> : null}
           {phase === "done" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.success}</Text> : null}
           {phase !== "choose" ? <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} /> : null}
+          {guardianSent ? <Text testID="guardian-sent" style={{ color: colors.navy, fontSize: type.body }}>{GUARDIAN_SENT}</Text> : null}
           {notice ? <Text style={{ color: colors.danger }}>{notice}</Text> : null}
           {choice.isError ? <Text style={{ color: colors.danger }}>{choice.error.message}</Text> : null}
         </View>

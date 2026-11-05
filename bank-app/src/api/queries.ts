@@ -192,6 +192,16 @@ export function useChoice() {
   })
 }
 
+export function useSendGuardianRequest() {
+  return useMutation({
+    mutationFn: async (transferId: string) => {
+      const response = await fetch(`${BANK_URL}/transfer/${transferId}/guardian-request`, { method: "POST" })
+      if (!response.ok) await rejectBank(response, "guardian-request")
+      return response.json() as Promise<{ transfer_id: string; request_id: string; status: string; message: string }>
+    },
+  })
+}
+
 export function useRegisterGuardian() {
   return useMutation({
     mutationFn: (input: { account_id: string; phone: string; relation: string; consent: boolean }) =>

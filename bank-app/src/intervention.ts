@@ -40,7 +40,8 @@ export const HOTLINE_BUTTON = "Gọi tổng đài ngân hàng"
 export const PAUSE_BUTTON = "Tạm dừng để xác minh"
 export const CANCEL_BUTTON = "Huỷ"
 export const CONTINUE_BUTTON = "Tiếp tục"
-export const GUARDIAN_BUTTON = "Nhờ người giám hộ xác nhận"
+export const GUARDIAN_BUTTON = "Gửi yêu cầu cho người giám hộ"
+export const GUARDIAN_SENT = "Đã gửi yêu cầu cho người giám hộ."
 
 export function level2Buttons(showGuardian: boolean): string[] {
   const buttons = [HOTLINE_BUTTON, PAUSE_BUTTON]
