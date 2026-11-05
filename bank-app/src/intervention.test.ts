@@ -1,11 +1,21 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { CALL_NEWPAYEE_HEADLINE, CONTINUE_BUTTON, continueView, FAKE_RELATIVE_NOTE, HABIT_NEWPAYEE_HEADLINE, HANGUP_NOTE, level1Headline, level2Buttons, showFakeRelative, STRENGTHENED_NOTE, UNSCORED_HEADLINE } from "./intervention.ts"
+import { CALL_NEWPAYEE_HEADLINE, CONTINUE_BUTTON, continueView, FAKE_RELATIVE_NOTE, HABIT_NEWPAYEE_HEADLINE, HANGUP_NOTE, level1Headline, level2Buttons, showFakeRelative, splitReasons, STRENGTHENED_HEADLINE_NOTE, STRENGTHENED_NOTE, UNSCORED_HEADLINE } from "./intervention.ts"
 
 const lock = "2026-09-21T10:30:00+07:00"
 const before = Date.parse("2026-09-21T10:00:00+07:00")
 const after = Date.parse("2026-09-21T10:30:00+07:00")
+
+test("two reason lines stay open and the rest go behind the details toggle", () => {
+  assert.deepEqual(splitReasons(["a", "b", "c", "d"]), { shown: ["a", "b"], hidden: ["c", "d"] })
+  assert.deepEqual(splitReasons(["a"]), { shown: ["a"], hidden: [] })
+  assert.deepEqual(splitReasons([]), { shown: [], hidden: [] })
+})
+
+test("the strengthened line names the thirty minute hold", () => {
+  assert.equal(STRENGTHENED_HEADLINE_NOTE, "Có nhiều dấu hiệu lừa đảo cùng lúc, nên giao dịch được giữ thêm 30 phút.")
+})
 
 test("level 2 buttons put continue last and hide the guardian without consent", () => {
   assert.deepEqual(level2Buttons(false), ["Gọi tổng đài ngân hàng", "Tạm dừng để xác minh", "Huỷ", "Tiếp tục"])

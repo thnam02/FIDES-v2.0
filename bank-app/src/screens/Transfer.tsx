@@ -18,7 +18,7 @@ import { addMethod } from "../addMethod"
 import { deviceState } from "../deviceState"
 import { level1AppStateCancels, level1ConfirmRejected, level1OnLeave } from "../level1Leave"
 import { payeeGate } from "../payeeLookup"
-import { CANCEL_BUTTON, continueView, FAKE_RELATIVE_NOTE, HOTLINE_BUTTON, level1Headline, PAUSE_BUTTON, showFakeRelative } from "../intervention"
+import { CANCEL_BUTTON, continueView, FAKE_RELATIVE_NOTE, HOTLINE_BUTTON, LESS_REASONS, level1Headline, MORE_REASONS, PAUSE_BUTTON, showFakeRelative, splitReasons, STRENGTHENED_HEADLINE_NOTE } from "../intervention"
 import { resultRoute } from "../routeDecision"
 import { DEMO, useBank, type EntryDetail } from "../store"
 import { Button, Card, colors, Header, Screen, useType } from "../ui/parts"
@@ -387,6 +387,30 @@ function EntryDetailLine() {
   return <Text testID="entry-detail" style={{ color: colors.navy, fontSize: type.body }}>{copy.entryWay}: {copy.entryDetail[detail]}</Text>
 }
 
+function ReasonLines({ lines, icon, lineTestID, center }: { lines: string[]; icon?: boolean; lineTestID?: string; center?: boolean }) {
+  const type = useType()
+  const [open, setOpen] = useState(false)
+  const { shown, hidden } = splitReasons(lines)
+  const visible = open ? [...shown, ...hidden] : shown
+  return (
+    <>
+      {visible.map((line) => icon ? (
+        <View key={line} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
+          <AlertTriangle size={14} color={colors.warn} />
+          <Text testID={lineTestID} style={{ flex: 1, color: colors.navy, fontSize: type.body }}>{line}</Text>
+        </View>
+      ) : (
+        <Text key={line} testID={lineTestID} style={{ color: colors.navy, fontSize: type.body, textAlign: center ? "center" : undefined }}>{line}</Text>
+      ))}
+      {hidden.length ? (
+        <Pressable testID="reasons-toggle" accessibilityRole="button" onPress={() => setOpen(!open)} style={{ minHeight: 44, justifyContent: "center", alignSelf: center ? "center" : "flex-start" }}>
+          <Text style={{ color: colors.deep, fontWeight: "700", fontSize: type.body }}>{open ? LESS_REASONS : MORE_REASONS}</Text>
+        </Pressable>
+      ) : null}
+    </>
+  )
+}
+
 export function ConfirmScreen() {
   const router = useRouter()
   const accountId = useBank((state) => state.accountId) ?? ""
@@ -472,9 +496,7 @@ export function ConfirmScreen() {
       {reminder ? (
         <View style={{ gap: 12 }}>
           <Text testID="level-1-headline" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{reminder.headline}</Text>
-          {reminder.reasons.map((line) => (
-            <Text key={line} testID="level-1-line" style={{ color: colors.navy, fontSize: type.body }}>{line}</Text>
-          ))}
+          <ReasonLines lines={reminder.reasons} lineTestID="level-1-line" />
           {reminder.fakeRelative ? (
             <Text testID="fake-relative" style={{ color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.4 }}>
               <Text style={{ fontWeight: "700" }}>{reminder.payeeName}</Text>
@@ -758,17 +780,13 @@ export function ResultScreen() {
       <Screen call>
         <View testID="level-2" style={{ gap: 16 }}>
           <Text testID="level-2-headline" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{outcome.headline || copy.level2Check}</Text>
+          {outcome.strengthened ? <Text testID="level-2-strengthened" style={{ color: colors.warn, fontSize: type.body, fontWeight: "700" }}>{STRENGTHENED_HEADLINE_NOTE}</Text> : null}
           <Card>
             <Text style={{ color: colors.navy, fontWeight: "700" }}>{who}</Text>
             <Text style={{ color: "#64748B", fontSize: type.small }}>{copy.bankName} · {showAccount(outcome.payee)}</Text>
             <Text style={{ color: colors.deep, fontSize: type.title, fontWeight: "700" }}>{vnd(outcome.amount)}</Text>
           </Card>
-          {outcome.reasonsVi.map((line) => (
-            <View key={line} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
-              <AlertTriangle size={14} color={colors.warn} />
-              <Text style={{ flex: 1, color: colors.navy, fontSize: type.body }}>{line}</Text>
-            </View>
-          ))}
+          <ReasonLines lines={outcome.reasonsVi} icon lineTestID="level-2-line" />
           {gate.notes.map((line) => (
             <Text key={line} testID={line === gate.notes[0] ? "level-2-note" : undefined} style={{ color: colors.navy, fontSize: type.body }}>{line}</Text>
           ))}
@@ -833,9 +851,7 @@ export function ResultScreen() {
         <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.success}</Text>
         <Text style={{ color: colors.deep, fontSize: 30, fontWeight: "700" }}>{vnd(outcome.amount)}</Text>
         <Text style={{ color: "#64748B", fontSize: type.body }}>{payeeLine([who, copy.bankName, showAccount(outcome.payee)])}</Text>
-        {route === "success_reminder" ? outcome.reasonsVi.map((line) => (
-          <Text key={line} testID="level-1-line" style={{ color: colors.navy, fontSize: type.body, textAlign: "center" }}>{line}</Text>
-        )) : null}
+        {route === "success_reminder" ? <ReasonLines lines={outcome.reasonsVi} lineTestID="level-1-line" center /> : null}
         <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} />
       </View>
     </Screen>

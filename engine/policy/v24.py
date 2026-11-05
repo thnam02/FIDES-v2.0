@@ -176,6 +176,27 @@ EPISODE_HEADLINE = "Bạn vừa có một giao dịch bị tạm dừng vì dấ
 GROUP_ORDER = ("A", "B", "C", "D")
 # A tiền, B thao tác trên máy, C mục đích. D giữ lệnh đó, không mở episode.
 EPISODE_GROUPS = frozenset({"A", "B", "C"})
+# Câu lớn mức 2: mục đích, rồi thao tác khi nghe máy, rồi dòng tiền, rồi người nhận.
+HEADLINE_GROUP_ORDER = ("C", "B", "A", "D")
+# Dòng lý do cụ thể nhất trước. Mã không có trong bảng đứng cuối, giữ thứ tự cũ.
+REASON_RANK = {
+    "purpose_high_risk": 0,
+    "behaviour_guided": 1,
+    "behaviour_rare": 1,
+    "screen_capture_active": 1,
+    "call_active": 2,
+    "call_ended": 2,
+    "funds_mobilised": 3,
+    "inflow_passthrough": 3,
+    "habit_money_rare": 4,
+    "habit_rare": 4,
+    "new_payee": 5,
+    "recipient_unusual": 5,
+    "recipient_simo_flag": 5,
+    "simo_info": 5,
+    "recipient_bank_confirmed_mule": 5,
+    "recipient_le_confirmed_case": 5,
+}
 
 
 def lock_minutes_setting() -> int:
@@ -209,10 +230,15 @@ def intervention_of(fired: list[dict], level: int, purpose: str | None = None) -
             headline = text
             break
     if not headline:
-        for rule in level2:
-            text = _rule_headline(str(rule.get("id")), purpose)
-            if text:
-                headline = text
+        for group in HEADLINE_GROUP_ORDER:
+            for rule in level2:
+                if str(rule.get("group") or "") != group:
+                    continue
+                text = _rule_headline(str(rule.get("id")), purpose)
+                if text:
+                    headline = text
+                    break
+            if headline:
                 break
     if not headline and level >= 1:
         for rule in fired:
@@ -819,7 +845,7 @@ def _reasons(facts: Facts, rules: list[dict], signals: dict[str, Signal], funds:
             add("simo_info", SIMO_INFO_TEXT)
         if rule["id"] == "R_SIMO":
             add(contract_code("recipient_simo_flag"), SIMO_TEXT)
-    return rows
+    return sorted(rows, key=lambda row: REASON_RANK.get(row[0], len(REASON_RANK)))
 
 
 def _behaviour_phrase(facts: Facts, group: str | None = None) -> str:

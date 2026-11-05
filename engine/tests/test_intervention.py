@@ -35,6 +35,59 @@ def test_one_group_is_not_strengthened_and_a_call_rule_requires_hangup():
     assert out.headline == HEADLINES["R_CALL_FUNDS_NEWPAYEE"]
 
 
+def test_purpose_outranks_the_money_pattern_for_the_headline():
+    out = evaluate(
+        _facts(
+            call_state="active",
+            task_type="new_typed",
+            new_payee=True,
+            funds_events=_funds(_at(9) - timedelta(hours=2)),
+            habit_money_rare=True,
+            habit_rare=True,
+            transfer_purpose="authority_request",
+        )
+    )
+    assert out.rules_fired.index("R_CALL_FUNDS_NEWPAYEE") < out.rules_fired.index("R_PURPOSE_HIGH_RISK")
+    assert out.groups_fired == ["A", "C"]
+    assert out.strengthened is True
+    assert out.headline == PURPOSE_HEADLINES["authority_request"]
+    assert out.reason_codes[:2] == ["purpose_high_risk", "call_active"]
+
+
+def test_guidance_outranks_the_money_pattern_for_the_headline():
+    out = evaluate(
+        _facts(
+            call_state="active",
+            new_payee=True,
+            task_type="new_typed",
+            funds_events=_funds(_at(9) - timedelta(hours=2)),
+            behaviour_p_rarity=0.5,
+            behaviour_guided_p=0.01,
+            same_task_sessions=8,
+            behaviour_guided_group="dictation",
+        )
+    )
+    assert "R_CALL_FUNDS_NEWPAYEE" in out.rules_fired
+    assert "R_BEHAVIOUR_GUIDED" in out.rules_fired
+    assert out.headline == HEADLINES["R_BEHAVIOUR_GUIDED"]
+    assert out.reason_codes[:3] == ["behaviour_guided", "call_active", "funds_mobilised"]
+
+
+def test_money_pattern_reasons_put_call_and_funds_before_habit_and_payee():
+    out = evaluate(
+        _facts(
+            call_state="active",
+            task_type="new_typed",
+            new_payee=True,
+            funds_events=_funds(_at(9) - timedelta(hours=2)),
+            habit_money_rare=True,
+            habit_rare=True,
+        )
+    )
+    assert out.reason_codes[:2] == ["call_active", "funds_mobilised"]
+    assert out.reason_codes[2] == "new_payee"
+
+
 def test_two_groups_lock_for_thirty_minutes_and_the_earlier_rule_is_the_headline():
     when = _at(9)
     out = evaluate(

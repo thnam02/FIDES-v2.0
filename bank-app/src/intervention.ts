@@ -23,6 +23,15 @@ export function level1Headline(rules: string[] | undefined, server: string | nul
 }
 export const HANGUP_NOTE = "Hãy cúp máy trước. Công an, ngân hàng và cơ quan nhà nước không bao giờ yêu cầu chuyển tiền qua điện thoại."
 export const STRENGTHENED_NOTE = "Giao dịch có nhiều dấu hiệu lừa đảo. Gọi tổng đài để xác nhận ngay, hoặc nhờ người giám hộ xác nhận."
+export const STRENGTHENED_HEADLINE_NOTE = "Có nhiều dấu hiệu lừa đảo cùng lúc, nên giao dịch được giữ thêm 30 phút."
+export const MORE_REASONS = "Xem chi tiết"
+export const LESS_REASONS = "Ẩn chi tiết"
+export const VISIBLE_REASONS = 2
+
+/** Máy chủ đã xếp dòng cụ thể nhất trước. Màn hình chỉ mở sẵn hai dòng đầu. */
+export function splitReasons(lines: string[]): { shown: string[]; hidden: string[] } {
+  return { shown: lines.slice(0, VISIBLE_REASONS), hidden: lines.slice(VISIBLE_REASONS) }
+}
 export const FAKE_RELATIVE_NOTE = "Nếu người thân nhắn tin hỏi mượn tiền, hãy gọi lại cho họ bằng số bạn đã lưu trước khi chuyển."
 export const HOTLINE_BUTTON = "Gọi tổng đài ngân hàng"
 export const PAUSE_BUTTON = "Tạm dừng để xác minh"

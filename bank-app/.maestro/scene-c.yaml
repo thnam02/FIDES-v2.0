@@ -43,6 +43,8 @@ appId: com.hainamtran.saobank
 - tapOn:
     id: "confirm-transfer"
 - assertVisible: "Tạm dừng để xác minh"
+- tapOn:
+    id: "reasons-toggle"
 - assertVisible: ".*ở ngoài app.*"
 - assertVisible: ".*cuộc gọi.*"
 - assertVisible: ".*người nhận.*"
