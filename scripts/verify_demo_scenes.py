@@ -16,7 +16,24 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BANK = os.environ.get("BANK_URL") or f"http://127.0.0.1:{os.environ.get('BANK_PORT', '8092')}"
+
+
+def dotenv() -> dict[str, str]:
+    """Same .env as the demo scripts. The shell environment wins."""
+    path = ROOT / ".env"
+    if not path.is_file():
+        return {}
+    pairs = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            pairs[key.strip()] = value.strip()
+    return pairs
+
+
+SETTINGS = {**dotenv(), **os.environ}
+BANK = SETTINGS.get("BANK_URL") or f"http://127.0.0.1:{SETTINGS.get('BANK_PORT', '8092')}"
 NONE = {"state": "none", "observability": "supported_observed", "transport": "unknown"}
 CALL = {"state": "active", "observability": "supported_observed", "transport": "cellular"}
 ENDED = {"state": "ended_in_session", "observability": "supported_observed", "transport": "cellular"}

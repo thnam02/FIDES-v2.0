@@ -77,7 +77,9 @@ PY
   else
     fail "Python packages missing: $missing" "fides-sim/.venv/bin/pip install -r engine/requirements.txt -r bank-core/requirements.txt -r fides/requirements.txt -r fides-sim/requirements.txt"
   fi
-  if command -v python3 >/dev/null 2>&1 && [ "$(command -v python3)" = "$ROOT/fides-sim/.venv/bin/python3" ]; then
+  venv_real=$(cd "$ROOT/fides-sim/.venv" 2>/dev/null && pwd -P)
+  path_prefix=$(python3 -c 'import os, sys; print(os.path.realpath(sys.prefix))' 2>/dev/null || true)
+  if [ -n "$venv_real" ] && [ "$path_prefix" = "$venv_real" ]; then
     pass "python3 on PATH is the project venv"
   else
     warn "python3 on PATH is $(command -v python3 2>/dev/null || echo missing), not the project venv" ". fides-sim/.venv/bin/activate   (demo_reset.sh calls python3)"

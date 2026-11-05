@@ -14,6 +14,8 @@ Câu lớn mức 2 lấy theo nhóm: C (mục đích) trước B (thao tác khi 
 
 ## Trước khi mở app
 
+Máy Mac mới: làm theo `docs/SETUP.md` trước, rồi chạy `sh scripts/setup_check.sh`.
+
 - Từ thư mục SEDIF, bật engine và bank. Script kiểm tra Postgres và Redis trước. Redis tắt thì tự bật `redis-server`. Postgres không trả lời thì dừng và in lệnh sửa (`brew services restart postgresql@16`). Không bật Postgres của docker compose, vì cơ sở đó không có `fides_w1`. Sau đó script dừng tiến trình đang giữ cổng 8091 và 8092, bật lại tách khỏi terminal, ghi log vào `logs/engine.log` và `logs/bank.log`, đợi health, chấm thử một lệnh rồi in `ready`. Đóng editor hay terminal không tắt hai server.
 
 ```sh

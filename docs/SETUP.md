@@ -22,6 +22,8 @@ Tested versions, November 2026:
 
 EAS is not used. Docker is optional (see `DB_MODE=docker` in Troubleshooting).
 
+Hardware: 16 GB of RAM (Redis holds about 2.8 GB) and about 10 GB of free disk (Postgres 4 GB with the event history, `dump.rdb` 1.7 GB, `node_modules`, Pods and the iOS build).
+
 ```sh
 xcode-select --install 2>/dev/null || true
 brew install python@3.14 node@24 postgresql@16 redis cocoapods
@@ -57,7 +59,7 @@ sed -i '' "s|YOUR_MAC_USER|$(whoami)|" .env
 
 - `FIDES_HMAC_KEY` hashes every account id. All hashes in Postgres `events` and in the Redis snapshot are built with it. If you change it later, redo steps 7 and 8.
 - `FIDES_API_KEY` is shared by bank-core and the engine.
-- The original Mac has no `.env` and uses the built-in defaults (`fides-demo-hmac`, `fides-demo-key`). A new Mac should use its own random keys.
+- The original Mac's `.env` holds the built-in defaults (`fides-demo-hmac`, `fides-demo-key`), because its Postgres and Redis data were built with them. Do not change them there; `setup_check.sh` only warns that they are short. A new Mac builds its own data in steps 7 and 8 and should use its own random keys.
 
 The app has its own file for the bank URL. Set this Mac's Wi-Fi address:
 
@@ -78,19 +80,26 @@ python -m pip install --upgrade pip
 pip install -r engine/requirements.txt -r bank-core/requirements.txt -r fides/requirements.txt
 ```
 
-Keep the venv active in every terminal you use for the demo (`. fides-sim/.venv/bin/activate`). `demo_reset.sh` calls `python3`, and that must be this venv.
+Every terminal you use for the setup or the demo starts with these two lines, from the repository root. The first makes `python3` the venv (`demo_reset.sh` calls `python3`). The second loads `.env` for the Python scripts; the shell scripts load it themselves.
+
+```sh
+. fides-sim/.venv/bin/activate
+set -a; . ./.env; set +a
+```
 
 Do not install `fides-sim/requirements.txt` here. It pins pandas below 3 for the simulator only.
 
 ## 5. Node dependencies
 
-`bank-app` depends on `fides-sdk` through `file:../fides-sdk`, so install the SDK first.
+`bank-app` depends on `fides-sdk` through `file:../fides-sdk`, so install the SDK first. Each folder has an `.npmrc` with `legacy-peer-deps=true`, because the lockfiles were resolved without auto-installed peer dependencies; without it npm 11 reports that the lockfile is out of sync.
 
 ```sh
 (cd fides-sdk && npm ci)
 (cd bank-app && npm ci)
 (cd bank-app/ios && pod install)    # iPhone or simulator only
 ```
+
+About 10 seconds for npm and 20 seconds for Pods with a warm cache.
 
 ## 6. Demo data (copy from the original Mac)
 
@@ -110,7 +119,7 @@ tar -xzf ~/Downloads/fides-sim-out.tgz -C fides-sim
 (cd fides-sim/out && shasum -a 256 -c --quiet ../../docs/fides-sim-out.sha256) && echo "data ok"
 ```
 
-Do not regenerate it with `fides-sim/sim/step*.py`. With today's code and libraries the simulator produces a different dataset (different row counts, different account ids), and the personas are missing.
+Do not regenerate it with `fides-sim/sim/step*.py`. Tested on 5 November 2026: under pandas 3 step 3 stops with "Mọi giao dịch bị loại"; under pandas 2.3 all seven steps run (about 6 minutes) but 30 of the 32 tables differ from the demo copy (for example 121 579 accounts instead of 126 463), so the demo personas and amounts do not match.
 
 Everything else is in git and needs no copying:
 
@@ -129,13 +138,12 @@ Start Postgres and create the database. There is no migration tool: the engine c
 ```sh
 brew services start postgresql@16
 createdb fides_w1
-psql "$(sed -n 's/^DATABASE_URL=//p' .env)" -c 'select 1'
+psql "$DATABASE_URL" -c 'select 1'
 ```
 
-Optional, not needed for the five scenes: the event history used by the dashboard and evaluation (3.6 million rows, about 10 minutes).
+Optional, not needed for the five scenes: the event history used by the dashboard and evaluation (3.6 million rows, about 6 minutes). The last lines compare every event type with its source count and must show no mismatch.
 
 ```sh
-set -a; . ./.env; set +a
 python scripts/load_sim_events.py --until 2026-09-20T00:00:00+07:00
 ```
 
@@ -149,10 +157,9 @@ redis-server /opt/homebrew/etc/redis.conf --daemonize yes
 redis-cli ping
 ```
 
-Build the snapshot: every simulated event before 21/09 10:00 goes into Redis db 15, then `SAVE` writes `dump.rdb` (1.7 GB on disk, about 2.6 GB of RAM). About 15 minutes.
+Build the snapshot: every simulated event before 21/09 10:00 goes into Redis db 15, then `SAVE` writes `dump.rdb` (1.7 GB on disk, about 2.8 GB of RAM). About 3 minutes. It ends with `saved until=2026-09-21T10:00:00+07:00 dbsize=4101895`.
 
 ```sh
-set -a; . ./.env; set +a
 python scripts/rebuild_feature_snapshot.py
 redis-cli -n 15 get f:snapshot_until     # 2026-09-21T10:00:00+07:00
 ```
@@ -168,7 +175,7 @@ BANK_RESEED=1 sh scripts/demo_up.sh
 sh scripts/demo_reset.sh
 ```
 
-`demo_up.sh` prints `ready` after both health checks and one warm-up decision. `demo_reset.sh` takes about 5 minutes and also prints `ready`.
+`demo_up.sh` prints `ready` after both health checks and one warm-up decision (about 50 seconds the first time, 10 seconds later). `demo_reset.sh` takes about 4 minutes, most of it Redis reloading `dump.rdb`, and also prints `ready`.
 
 macOS asks once whether Python may accept incoming connections. Click Allow, or the iPhone cannot reach bank-core.
 
@@ -182,7 +189,7 @@ sh scripts/demo_reset.sh
 
 `setup_check.sh` prints PASS, WARN or FAIL for each requirement, with the fix. `WARN events history not loaded` is fine if you skipped the optional step in 7.
 
-`verify_demo_scenes.py` runs the five scenes by API and must end with `all scenes match`:
+`verify_demo_scenes.py` reads `BANK_PORT` from `.env`, runs the five scenes by API and must end with `all scenes match`:
 
 | Scene | Expected |
 | --- | --- |
@@ -239,6 +246,8 @@ sed -i '' "s|^EXPO_PUBLIC_BANK_URL=.*|EXPO_PUBLIC_BANK_URL=http://127.0.0.1:8092
 cd bank-app && npx expo run:ios --port 8089
 ```
 
+This builds the dev client (about 5 minutes the first time), installs it on the booted simulator, starts Metro on 8089 and opens the app. The simulator shares the Mac's network, so `127.0.0.1` works and no Apple signing is needed.
+
 What works: every screen, all five scenes, the level-1 sheet, the level-2 and level-3 screens, and the demo menu.
 
 What does not:
@@ -265,3 +274,9 @@ What does not:
 **The iPhone cannot reach the Mac.** Same Wi-Fi, no client isolation. `bank-app/.env` must match `ipconfig getifaddr en0`. macOS firewall: System Settings > Network > Firewall, allow Python and node. Test from the Mac: `curl http://$(ipconfig getifaddr en0):8092/health`.
 
 **Port already in use.** `sh scripts/setup_check.sh` shows which program holds 8089, 8091 or 8092. `demo_up.sh` stops whatever listens on 8091 and 8092 before it starts.
+
+## What this guide was tested with
+
+On 5 November 2026 a fresh clone of `nam/fides` was set up on the original Mac by following steps 2 to 11, with its own database, its own Redis instance, its own ports and new random keys: `setup_check.sh` passed and `verify_demo_scenes.py` printed `all scenes match`. The iOS app compiled for the simulator from that clone (`BUILD SUCCEEDED`, about 5 minutes).
+
+Not covered by that run: Apple signing with a different Apple ID, pairing a new iPhone, the macOS firewall prompt, `DB_MODE=docker`, and a Mac without the Homebrew tools already installed.
