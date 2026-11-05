@@ -22,3 +22,6 @@ fides-sdk/android/build/
 
 # Nhật ký sinh khi chạy test. Gói mô hình và parquet đặc trưng trong fides/out/ vẫn được theo dõi.
 fides/out/audit/
+
+# Log của scripts/demo_up.sh
+logs/

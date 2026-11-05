@@ -13,6 +13,14 @@ test("two reason lines stay open and the rest go behind the details toggle", () 
   assert.deepEqual(splitReasons([]), { shown: [], hidden: [] })
 })
 
+test("lines the headline already says leave the open slots and go last in the details", () => {
+  assert.deepEqual(splitReasons(["call", "funds", "near", "large", "payee"], ["call", "funds", "payee"]), {
+    shown: ["near", "large"],
+    hidden: ["call", "funds", "payee"],
+  })
+  assert.deepEqual(splitReasons(["call"], ["call"]), { shown: [], hidden: ["call"] })
+})
+
 test("the strengthened line names the thirty minute hold", () => {
   assert.equal(STRENGTHENED_HEADLINE_NOTE, "Có nhiều dấu hiệu lừa đảo cùng lúc, nên giao dịch được giữ thêm 30 phút.")
 })

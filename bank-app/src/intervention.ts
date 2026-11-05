@@ -28,9 +28,12 @@ export const MORE_REASONS = "Xem chi tiết"
 export const LESS_REASONS = "Ẩn chi tiết"
 export const VISIBLE_REASONS = 2
 
-/** Máy chủ đã xếp dòng cụ thể nhất trước. Màn hình chỉ mở sẵn hai dòng đầu. */
-export function splitReasons(lines: string[]): { shown: string[]; hidden: string[] } {
-  return { shown: lines.slice(0, VISIBLE_REASONS), hidden: lines.slice(VISIBLE_REASONS) }
+/** Máy chủ đã xếp dòng cụ thể nhất trước. Dòng câu lớn đã nói không chiếm chỗ mở sẵn, chỉ nằm cuối phần chi tiết. */
+export function splitReasons(lines: string[], restated: string[] = []): { shown: string[]; hidden: string[] } {
+  const said = new Set(restated)
+  const fresh = lines.filter((line) => !said.has(line))
+  const repeat = lines.filter((line) => said.has(line))
+  return { shown: fresh.slice(0, VISIBLE_REASONS), hidden: [...fresh.slice(VISIBLE_REASONS), ...repeat] }
 }
 export const FAKE_RELATIVE_NOTE = "Nếu người thân nhắn tin hỏi mượn tiền, hãy gọi lại cho họ bằng số bạn đã lưu trước khi chuyển."
 export const HOTLINE_BUTTON = "Gọi tổng đài ngân hàng"

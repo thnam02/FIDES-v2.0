@@ -387,10 +387,10 @@ function EntryDetailLine() {
   return <Text testID="entry-detail" style={{ color: colors.navy, fontSize: type.body }}>{copy.entryWay}: {copy.entryDetail[detail]}</Text>
 }
 
-function ReasonLines({ lines, icon, lineTestID, center }: { lines: string[]; icon?: boolean; lineTestID?: string; center?: boolean }) {
+function ReasonLines({ lines, restated, icon, lineTestID, center }: { lines: string[]; restated?: string[]; icon?: boolean; lineTestID?: string; center?: boolean }) {
   const type = useType()
   const [open, setOpen] = useState(false)
-  const { shown, hidden } = splitReasons(lines)
+  const { shown, hidden } = splitReasons(lines, restated)
   const visible = open ? [...shown, ...hidden] : shown
   return (
     <>
@@ -428,7 +428,7 @@ export function ConfirmScreen() {
   const cancelLevel1 = useCancelLevel1()
   const remindedAt = useRef(Date.now())
   const settled = useRef(false)
-  const [reminder, setReminder] = useState<{ transferId: string; reasons: string[]; headline: string; fakeRelative: boolean; payeeName: string } | null>(null)
+  const [reminder, setReminder] = useState<{ transferId: string; reasons: string[]; restated: string[]; headline: string; fakeRelative: boolean; payeeName: string } | null>(null)
   const navigation = useNavigation()
   const cancelRef = useRef(cancelLevel1)
   cancelRef.current = cancelLevel1
@@ -496,7 +496,7 @@ export function ConfirmScreen() {
       {reminder ? (
         <View style={{ gap: 12 }}>
           <Text testID="level-1-headline" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{reminder.headline}</Text>
-          <ReasonLines lines={reminder.reasons} lineTestID="level-1-line" />
+          <ReasonLines lines={reminder.reasons} restated={reminder.restated} lineTestID="level-1-line" />
           {reminder.fakeRelative ? (
             <Text testID="fake-relative" style={{ color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.4 }}>
               <Text style={{ fontWeight: "700" }}>{reminder.payeeName}</Text>
@@ -521,6 +521,7 @@ export function ConfirmScreen() {
                     actions: [],
                     reasons: reminder.reasons.map((text) => ({ code: "shown", text })),
                     reasonsVi: reminder.reasons,
+                    restatedVi: reminder.restated,
                     signalsPresent: [],
                     funds_status: "released",
                     gate: "none",
@@ -616,11 +617,13 @@ export function ConfirmScreen() {
                 if (card && entryDetail) card.entry_detail = entryDetail
                 const engineLevel = result.decision.unscored && result.decision.level == null ? null : result.decision.level
                 const reasonsVi = (card?.reasons_vi ?? result.decision.reasons.map((reason) => reason.text) ?? []).map(reasonLine).filter(Boolean)
+                const restatedVi = (card?.restated_vi ?? []).map(reasonLine).filter(Boolean)
                 if (result.status === "awaiting_confirmation") {
                   remindedAt.current = Date.now()
                   setReminder({
                     transferId: result.transfer_id,
                     reasons: reasonsVi,
+                    restated: restatedVi,
                     headline: level1Headline(result.decision.rules_fired, result.decision.headline),
                     fakeRelative: showFakeRelative((result.decision.signals_present ?? []).includes("new_payee"), purpose),
                     payeeName: resolved || toName,
@@ -639,6 +642,7 @@ export function ConfirmScreen() {
                   actions: result.decision.actions,
                   reasons: (result.decision.reasons ?? []).map((reason) => ({ ...reason, text: reasonLine(reason.text) })),
                   reasonsVi,
+                  restatedVi,
                   signalsPresent: result.decision.signals_present ?? [],
                   funds_status: experiment ? "released" : result.funds_status,
                   gate: "none",
@@ -786,7 +790,7 @@ export function ResultScreen() {
             <Text style={{ color: "#64748B", fontSize: type.small }}>{copy.bankName} · {showAccount(outcome.payee)}</Text>
             <Text style={{ color: colors.deep, fontSize: type.title, fontWeight: "700" }}>{vnd(outcome.amount)}</Text>
           </Card>
-          <ReasonLines lines={outcome.reasonsVi} icon lineTestID="level-2-line" />
+          <ReasonLines lines={outcome.reasonsVi} restated={outcome.restatedVi} icon lineTestID="level-2-line" />
           {gate.notes.map((line) => (
             <Text key={line} testID={line === gate.notes[0] ? "level-2-note" : undefined} style={{ color: colors.navy, fontSize: type.body }}>{line}</Text>
           ))}
@@ -851,7 +855,7 @@ export function ResultScreen() {
         <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.success}</Text>
         <Text style={{ color: colors.deep, fontSize: 30, fontWeight: "700" }}>{vnd(outcome.amount)}</Text>
         <Text style={{ color: "#64748B", fontSize: type.body }}>{payeeLine([who, copy.bankName, showAccount(outcome.payee)])}</Text>
-        {route === "success_reminder" ? <ReasonLines lines={outcome.reasonsVi} lineTestID="level-1-line" center /> : null}
+        {route === "success_reminder" ? <ReasonLines lines={outcome.reasonsVi} restated={outcome.restatedVi} lineTestID="level-1-line" center /> : null}
         <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} />
       </View>
     </Screen>

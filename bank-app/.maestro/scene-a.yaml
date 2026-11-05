@@ -45,11 +45,16 @@ appId: com.hainamtran.saobank
     direction: DOWN
 - assertVisible: "Tiếp tục chuyển"
 - assertVisible: "Huỷ"
+- assertNotVisible: ".*Bạn đang trong cuộc gọi và chuyển tiền cho người nhận mới.*"
+- tapOn:
+    id: "reasons-toggle"
 - assertVisible: ".*Bạn đang trong cuộc gọi và chuyển tiền cho người nhận mới.*"
 - assertNotVisible: "Chuyển tiền thành công"
 - tapOn:
     id: "level-1-continue"
 - assertVisible: "Chuyển tiền thành công"
+- tapOn:
+    id: "reasons-toggle"
 - assertVisible: ".*Bạn đang trong cuộc gọi và chuyển tiền cho người nhận mới.*"
 - assertNotVisible: "Tạm dừng để xác minh"
 - assertNotVisible: "Giao dịch đang được ngân hàng xem xét"

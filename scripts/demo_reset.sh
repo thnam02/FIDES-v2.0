@@ -383,45 +383,5 @@ while true; do
   fi
   sleep 0.5
 done
-ENGINE="$ENGINE" API_KEY="$API_KEY" FIDES_ROOT="$ROOT" python3 - <<'PY'
-import json
-import os
-import sys
-import urllib.error
-import urllib.request
-
-sys.path[:0] = [os.environ["FIDES_ROOT"]]
-from engine.common.hashing import account_hash, reset_key_cache
-
-reset_key_cache()
-body = {
-    "decision_id": "warmup-demo-reset",
-    "profile": "advanced",
-    "sender_hash": account_hash("A0031239"),
-    "payee_hash": account_hash("warmup-payee"),
-    "amount": 1,
-    "ts": "2026-09-21T10:00:00+07:00",
-    "session_id": "warmup-demo-reset",
-    "device": {"state": "none"},
-    "add_method": "typed",
-    "task_type": "saved_payee",
-}
-data = json.dumps(body).encode()
-request = urllib.request.Request(
-    os.environ["ENGINE"].rstrip("/") + "/decide",
-    data=data,
-    headers={"Content-Type": "application/json", "X-API-Key": os.environ["API_KEY"]},
-)
-try:
-    with urllib.request.urlopen(request, timeout=60) as response:
-        status = response.status
-        payload = response.read().decode()
-except urllib.error.HTTPError as exc:
-    sys.stderr.write(exc.read().decode()[:500] + "\n")
-    sys.exit(1)
-if status != 200:
-    sys.stderr.write(f"warmup decide {status} {payload[:500]}\n")
-    sys.exit(1)
-print("warmup decide ok")
-PY
+ENGINE="$ENGINE" API_KEY="$API_KEY" python3 "$ROOT/scripts/warmup_decide.py" warmup-demo-reset
 echo ready

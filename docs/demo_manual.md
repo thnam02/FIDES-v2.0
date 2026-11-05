@@ -10,9 +10,15 @@ Cuộc gọi là cuộc gọi thật, từ một máy khác. App nghe trạng th
 
 Nút khiên trên tiêu đề, hoặc dòng “Phiên FIDES”, mở menu demo.
 
-Màn mức 2 và tờ mức 1 hiện câu lớn và tối đa hai dòng lý do. Dòng cụ thể nhất đứng trước: mục đích, thao tác, cuộc gọi, dòng tiền, thói quen, người nhận. Các dòng còn lại nằm sau “Xem chi tiết”, đóng sẵn. Câu lớn mức 2 lấy theo nhóm: C (mục đích) trước B (thao tác khi nghe máy), rồi A (dòng tiền), rồi D (người nhận).
+Câu lớn mức 2 lấy theo nhóm: C (mục đích) trước B (thao tác khi nghe máy), rồi A (dòng tiền), rồi D (người nhận). Màn mức 2 và tờ mức 1 hiện câu lớn và tối đa hai dòng lý do. Dòng nào câu lớn đã nói thì không hiện lại. Hai dòng hiện là hai dòng cụ thể nhất còn lại, theo thứ tự mục đích, thao tác, cuộc gọi, dòng tiền, thói quen, người nhận. Mọi dòng khác, kể cả dòng câu lớn đã nói, nằm sau “Xem chi tiết”, đóng sẵn.
 
 ## Trước khi mở app
+
+- Từ thư mục SEDIF, bật engine và bank. Script dừng tiến trình đang giữ cổng 8091 và 8092, bật lại tách khỏi terminal, ghi log vào `logs/engine.log` và `logs/bank.log`, đợi health, chấm thử một lệnh rồi in `ready`. Đóng editor hay terminal không tắt hai server.
+
+```sh
+sh scripts/demo_up.sh
+```
 
 - Máy gọi đã sẵn, có số của điện thoại demo. Gọi thật ở cảnh 2, cảnh 3 (lệnh 120 triệu sau tất toán), cảnh 4 và cảnh 5. Từ cảnh 3 sang cảnh 4 không cúp máy.
 - Engine cổng 8091 và bank cổng 8092 đều trả 200:
@@ -25,7 +31,7 @@ curl -sf -o /dev/null -w "bank %{http_code}\n" http://127.0.0.1:8092/health
 - Điện thoại và Mac cùng Wi‑Fi. App gọi bank-core tại `EXPO_PUBLIC_BANK_URL` trong `bank-app/.env` (hiện `http://192.168.50.146:8092`). Điện thoại không gọi engine. Engine nghe `127.0.0.1:8091`, bank nghe cổng 8092 và tự gọi engine. Đổi IP thì sửa `.env` rồi mở lại Metro.
 - QR cửa hàng in sẵn để giơ lên: Công ty TNHH Thành Công, `0901 119 434`. Nút QR trong app điền đúng cửa hàng đó. App không đọc camera.
 - Không AirPlay, không ghi màn hình, không chiếu màn hình. iOS gộp cả ba vào `UIScreen.isCaptured`. Khi đó mọi lệnh thành mức 2 với `R_CAPTURE`, và năm cảnh dưới đây sai hết.
-- Từ thư mục SEDIF, đúng một lần:
+- Sau `demo_up.sh`, từ thư mục SEDIF, đúng một lần:
 
 ```sh
 sh scripts/demo_reset.sh
@@ -49,7 +55,7 @@ Nói: “Người nhận đã lưu, không có cuộc gọi. Ngân hàng để l
 
 Chuyển tiền. Giơ QR in sẵn, bấm nút quét QR cạnh ô tài khoản (nhãn “Quét mã QR cửa hàng”). App điền Công ty TNHH Thành Công, `0901 119 434`. Số tiền `60000`. Người nhận mới nên app hỏi mục đích: chọn “Mua hàng, dịch vụ”. Xác nhận.
 
-Tờ mức 1 hiện ngay trên màn xác nhận. Câu lớn: “Bạn đang nghe điện thoại và chuyển cho người nhận mới. Nếu có ai đang hướng dẫn bạn chuyển tiền, hãy dừng lại.” Một dòng lý do: “Bạn đang trong cuộc gọi và chuyển tiền cho người nhận mới.” Không có “Xem chi tiết”. Hai nút đều bấm được: “Tiếp tục chuyển” và “Huỷ”. Bấm “Huỷ”. Cúp máy.
+Tờ mức 1 hiện ngay trên màn xác nhận. Câu lớn: “Bạn đang nghe điện thoại và chuyển cho người nhận mới. Nếu có ai đang hướng dẫn bạn chuyển tiền, hãy dừng lại.” Không có dòng lý do nào mở sẵn: dòng duy nhất, “Bạn đang trong cuộc gọi và chuyển tiền cho người nhận mới.”, nói lại câu lớn nên nằm sau “Xem chi tiết”. Hai nút đều bấm được: “Tiếp tục chuyển” và “Huỷ”. Bấm “Huỷ”. Cúp máy.
 
 Nói: “Có cuộc gọi và người nhận mới. Đây chỉ là lời nhắc. Khách vẫn tự quyết.”
 
@@ -63,7 +69,7 @@ Về trang chủ. Trên thẻ số dư bấm “Tiền gửi” (hoặc ô “Ti
 
 Gọi thật và giữ máy. Gửi lại: gõ `0902101002`, `120000000`, mục đích “Mua hàng, dịch vụ”. Xác nhận.
 
-Màn hình mức 2, một nhóm, chưa tăng cường. Câu lớn: “Bạn vừa rút tiền tiết kiệm hoặc nhận tiền và đang chuyển cho người lạ trong lúc nghe điện thoại. Đây là cách kẻ giả danh công an thường lừa tiền.” Hai dòng lý do: “Có cuộc gọi đang diễn ra trong phiên này.” và “Sổ tiết kiệm vừa được tất toán.” Bấm “Xem chi tiết” thì thêm ba dòng: chuyển gần hết số dư, số tiền lớn gấp nhiều lần thường lệ, chưa từng chuyển tới người nhận này. Dòng khoá: “Hãy cúp máy trước. Công an, ngân hàng và cơ quan nhà nước không bao giờ yêu cầu chuyển tiền qua điện thoại.”
+Màn hình mức 2, một nhóm, chưa tăng cường. Câu lớn: “Bạn vừa rút tiền tiết kiệm hoặc nhận tiền và đang chuyển cho người lạ trong lúc nghe điện thoại. Đây là cách kẻ giả danh công an thường lừa tiền.” Câu lớn đã nói cuộc gọi, tiền tiết kiệm và người lạ, nên hai dòng lý do là: “Bạn đang chuyển gần hết số dư.” và “Số tiền lớn gấp nhiều lần mức bạn thường chuyển.” “Xem chi tiết” mở ba dòng câu lớn đã nói: cuộc gọi đang diễn ra, sổ tiết kiệm vừa tất toán, chưa từng chuyển tới người nhận này. Dòng khoá: “Hãy cúp máy trước. Công an, ngân hàng và cơ quan nhà nước không bao giờ yêu cầu chuyển tiền qua điện thoại.”
 
 Nút, từ trên xuống: “Gọi tổng đài ngân hàng”, “Tạm dừng để xác minh”, “Huỷ”, “Tiếp tục”. “Tiếp tục” bị khoá vì máy còn gọi. Không có nút giám hộ: Huỳnh có người giám hộ nhưng sau reset chưa lưu sự đồng ý.
 
@@ -79,7 +85,7 @@ Chuyển tiền, gõ `0902102002` (Mai Phương Thảo). Số tiền `40000000`.
 
 Màn hình mức 2, tăng cường. Lệnh khớp nhóm A (cuộc gọi, sổ tiết kiệm) và nhóm C (mục đích). Nhóm C đứng trước nên câu lớn là: “Cơ quan nhà nước không bao giờ yêu cầu chuyển tiền để xác minh.” Ngay dưới là dòng tăng cường: “Có nhiều dấu hiệu lừa đảo cùng lúc, nên giao dịch được giữ thêm 30 phút.”
 
-Hai dòng lý do: “Mục đích chuyển là yêu cầu của cơ quan hoặc phí để nhận tiền.” và “Có cuộc gọi đang diễn ra trong phiên này.” “Xem chi tiết” mở thêm bốn dòng: sổ tiết kiệm vừa tất toán, chuyển gần hết số dư, số tiền lớn gấp nhiều lần thường lệ, chưa từng chuyển tới người nhận này.
+Câu lớn đã nói mục đích, nên hai dòng lý do là: “Có cuộc gọi đang diễn ra trong phiên này.” và “Sổ tiết kiệm vừa được tất toán.” “Xem chi tiết” mở thêm bốn dòng: chuyển gần hết số dư, số tiền lớn gấp nhiều lần thường lệ, chưa từng chuyển tới người nhận này, và dòng mục đích.
 
 Hai dòng khoá: dòng cúp máy, và “Giao dịch có nhiều dấu hiệu lừa đảo. Gọi tổng đài để xác nhận ngay, hoặc nhờ người giám hộ xác nhận.” Nút giống cảnh 3. “Tiếp tục” đổi thành đếm ngược “Có thể tiếp tục sau …” (khoá 30 phút) và không bấm được.
 
@@ -95,7 +101,7 @@ Nói: “Cùng cuộc gọi, thêm mục đích cơ quan nhà nước. Hai nhóm
 
 Chuyển tiền, gõ `0902402001` (Ngô Thanh Hà). Số tiền `500000`. Người nhận mới nên app hỏi mục đích: chọn “Khác”. Không chọn cơ quan nhà nước. Xác nhận.
 
-Màn hình mức 2, một nhóm (B), chưa tăng cường. Câu lớn: “Cách bạn thao tác giống như đang được người khác đọc cho từng bước.” Hai dòng lý do: “Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho.” và “Có cuộc gọi đang diễn ra trong phiên này.” “Xem chi tiết” mở thêm một dòng: chưa từng chuyển tới người nhận này. Có dòng cúp máy. Nút giống cảnh 3, “Tiếp tục” khoá cho đến khi cúp máy. Bấm “Huỷ”. Cúp máy. Tắt “Demo: phiên có hướng dẫn”.
+Màn hình mức 2, một nhóm (B), chưa tăng cường. Câu lớn: “Cách bạn thao tác giống như đang được người khác đọc cho từng bước.” Câu lớn chỉ nói chung về cách thao tác, nên không dòng nào bị coi là nói lại. Hai dòng lý do: “Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho.” và “Có cuộc gọi đang diễn ra trong phiên này.” “Xem chi tiết” mở thêm một dòng: chưa từng chuyển tới người nhận này. Có dòng cúp máy. Nút giống cảnh 3, “Tiếp tục” khoá cho đến khi cúp máy. Bấm “Huỷ”. Cúp máy. Tắt “Demo: phiên có hướng dẫn”.
 
 Nói: “Số tài khoản được đọc từng cụm trong lúc nghe máy. Ngân hàng nhận ra cách nhập, không cần số tiền lớn.”
 

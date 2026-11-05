@@ -611,7 +611,10 @@ def main() -> None:
         ensure_schema(conn)
     with audit_conn() as conn:
         ensure_audit(conn)
-    ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+    host = os.environ.get("ENGINE_HOST", "0.0.0.0")
+    port = int(os.environ.get("ENGINE_PORT", "8080"))
+    print(f"engine listening {host}:{port}", flush=True)
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
 if __name__ == "__main__":

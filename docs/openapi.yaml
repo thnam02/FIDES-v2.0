@@ -1519,6 +1519,11 @@ components:
           type: array
           items:
             type: string
+        restated_vi:
+          type: array
+          description: Dòng trong reasons_vi mà câu lớn đã nói. Màn hình không mở sẵn các dòng này.
+          items:
+            type: string
         baseline_quality:
           type: string
           enum: [low, medium, high, none]
