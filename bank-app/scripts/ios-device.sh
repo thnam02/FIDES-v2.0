@@ -5,6 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${EXPO_PORT:-8089}"
+# Another Apple team signs under its own bundle id. Set the same id in Xcode > Signing & Capabilities.
+BUNDLE_ID="${BUNDLE_ID:-com.hainamtran.saobank}"
 LAN_IP="$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || true)"
 if [[ -z "${LAN_IP}" ]]; then
   echo "No LAN address on en0 or en1." >&2
@@ -58,6 +60,6 @@ xcrun devicectl device install app --device "${UDID}" "${APP}"
 xcrun devicectl device process launch \
   --device "${UDID}" \
   --terminate-existing \
-  com.hainamtran.saobank \
+  "${BUNDLE_ID}" \
   -- --initialUrl "${METRO_URL}"
 echo "Opened ${METRO_URL}"

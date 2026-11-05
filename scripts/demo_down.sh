@@ -3,6 +3,11 @@
 # Không đụng Postgres và Redis trên máy. DB_MODE=docker thì dừng thêm postgres và redis của compose.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+if [ -f "$ROOT/.env" ]; then
+  set -a
+  . "$ROOT/.env"
+  set +a
+fi
 LOGS=${LOG_DIR:-$ROOT/logs}
 DB_MODE=${DB_MODE:-host}
 

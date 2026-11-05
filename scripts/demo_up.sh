@@ -3,6 +3,11 @@
 # Dừng tiến trình đang nghe hai cổng đó trước. Đợi health, chấm thử một lệnh, rồi in ready.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+if [ -f "$ROOT/.env" ]; then
+  set -a
+  . "$ROOT/.env"
+  set +a
+fi
 PY=${PYTHON:-$ROOT/fides-sim/.venv/bin/python}
 ENGINE_PORT=${ENGINE_PORT:-8091}
 BANK_PORT=${BANK_PORT:-8092}
@@ -139,7 +144,8 @@ PYTHONPATH="$ROOT" ENGINE_HOST=127.0.0.1 ENGINE_PORT="$ENGINE_PORT" DEMO_REPLAY=
   detach "$LOGS/engine.log" "$ROOT" "$PY" -m engine.app
 wait_health engine "$ENGINE" "$LOGS/engine.log" "$ENGINE_PORT"
 
-PYTHONPATH="$ROOT:$ROOT/bank-core" ENGINE_URL="$ENGINE" DEMO_REPLAY=0 BANK_RESEED=0 \
+# BANK_RESEED=1 chỉ lần đầu trên máy mới: tạo schema bank và nạp sổ từ parquet.
+PYTHONPATH="$ROOT:$ROOT/bank-core" ENGINE_URL="$ENGINE" DEMO_REPLAY=0 BANK_RESEED="${BANK_RESEED:-0}" \
   detach "$LOGS/bank.log" "$ROOT/bank-core" "$PY" -m uvicorn app:app --host 0.0.0.0 --port "$BANK_PORT" --log-level warning
 wait_health bank "$BANK" "$LOGS/bank.log" "$BANK_PORT"
 
