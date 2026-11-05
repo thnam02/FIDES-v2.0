@@ -195,6 +195,25 @@ def test_guardian_confirms_an_open_request_once_even_inside_the_lock():
     assert balance("ZLANB40000000002") == payee_before + 4_000_000
 
 
+def test_level3_is_decided_only_by_bank_review():
+    sender = balance(HOANG)
+    cancelled = send(HOANG, MULE, 500_000, NONE, "other")
+    assert cancelled["decision"]["level"] == 3
+    listed = [row["transfer_id"] for row in ok("GET", "/review/transfers")["transfers"]]
+    assert cancelled["transfer_id"] in listed
+    mule_before = balance(MULE)
+    ok("POST", f"/review/transfers/{cancelled['transfer_id']}", {"decision": "cancel"})
+    assert balance(HOANG) == sender
+    assert balance(MULE) == mule_before
+    released = send(HOANG, MULE, 500_000, NONE, "other")
+    ok("POST", f"/review/transfers/{released['transfer_id']}", {"decision": "release"})
+    assert balance(MULE) == mule_before + 500_000
+    status, payload = call("POST", f"/review/transfers/{released['transfer_id']}", {"decision": "cancel"})
+    assert status == 409, payload
+    level2 = held_level2("ZGUIDE4000000001", amount=1_000_000)
+    status, payload = call("POST", f"/review/transfers/{level2['transfer_id']}", {"decision": "release"})
+    assert status == 409, payload
+
 def test_a_guardian_added_during_the_scam_cannot_approve():
     """Last in this module: it replaces the seeded guardian."""
     out = held_level2("ZVAY000000000001", amount=2_500_000)
@@ -209,3 +228,21 @@ def test_a_guardian_added_during_the_scam_cannot_approve():
     assert status == 409 and "chưa thể xác nhận" in payload["detail"], payload
     assert balance("ZVAY000000000001") == payee_before
     assert guardian_request(tid)["funds_status"] == "held"
+
+
+def test_level2_hold_auto_cancels_after_24_hours():
+    """Last: moves the demo clock forward."""
+    sender_before = balance(HUYNH)
+    out = held_level2("ZCAP400000000001", amount=1_500_000)
+    assert out["hold_until"]
+    tid = out["transfer_id"]
+    assert balance(HUYNH) == sender_before - 1_500_000
+    ok("POST", "/clock/advance", {"seconds": 24 * 3600 + 60})
+    # Every level-2 hold left by earlier tests expires too, so check this transfer's own refund.
+    entries = {row["tx_id"]: row for row in ok("GET", f"/accounts/{HUYNH}/history")["entries"]}
+    assert entries[tid]["status"] == "cancelled"
+    assert entries[f"{tid}:refund"]["amount"] == 1_500_000
+    assert balance(HUYNH) >= sender_before
+    assert guardian_request(tid) is None
+    status, payload = call("POST", f"/transfer/{tid}/respond", {"proceed": True, "call": ENDED})
+    assert status == 409, payload

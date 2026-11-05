@@ -1001,6 +1001,42 @@ paths:
                   message: {type: string}
         "409":
           description: Lệnh mức 3, lệnh không còn giữ, hoặc chưa có người giám hộ đã đồng ý.
+  /review/transfers:
+    get:
+      tags: [Bank core]
+      operationId: listReviewTransfers
+      summary: Lệnh mức 3 đang giữ, chờ ngân hàng xem xét
+      responses:
+        "200":
+          description: Danh sách lệnh.
+  /review/transfers/{id}:
+    post:
+      tags: [Bank core]
+      operationId: reviewTransfer
+      summary: Ngân hàng quyết lệnh mức 3
+      description: >
+        Đường duy nhất cho lệnh mức 3. release trả người nhận, cancel huỷ và hoàn tiền cho khách.
+        Lệnh không phải mức 3 hoặc không còn giữ thì 409.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: {type: string, enum: [release, cancel]}
+      responses:
+        "200":
+          description: Đã quyết.
+        "409":
+          description: Không phải lệnh mức 3 đang giữ.
   /guardian/requests/{id}/confirm:
     post:
       tags: [Bank core]
