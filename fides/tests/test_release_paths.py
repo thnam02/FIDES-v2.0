@@ -246,3 +246,14 @@ def test_level2_hold_auto_cancels_after_24_hours():
     assert guardian_request(tid) is None
     status, payload = call("POST", f"/transfer/{tid}/respond", {"proceed": True, "call": ENDED})
     assert status == 409, payload
+
+
+@pytest.mark.skipif(not os.environ.get("BANK_API_KEY"), reason="BANK_API_KEY is not set")
+def test_writes_without_the_bank_key_are_refused():
+    request = urllib.request.Request(
+        BANK + "/transfer/X-none/hotline", data=b"{}", method="POST", headers={"Content-Type": "application/json"}
+    )
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        urllib.request.urlopen(request, timeout=10)
+    assert caught.value.code == 401
+    assert ok("GET", f"/accounts/{HUYNH}")["id"] == HUYNH

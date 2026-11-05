@@ -61,12 +61,21 @@ sed -i '' "s|YOUR_MAC_USER|$(whoami)|" .env
 - `FIDES_API_KEY` is shared by bank-core and the engine.
 - The original Mac's `.env` holds the built-in defaults (`fides-demo-hmac`, `fides-demo-key`), because its Postgres and Redis data were built with them. Do not change them there; `setup_check.sh` only warns that they are short. A new Mac builds its own data in steps 7 and 8 and should use its own random keys.
 
+Optional: `BANK_API_KEY`. When it is set, every POST to bank-core needs the header `X-Bank-Key`, so other devices on the stage Wi-Fi cannot move money. Put the same value in `bank-app/.env` as `EXPO_PUBLIC_BANK_API_KEY`. That value is bundled into the app, so it does not hide anything from whoever holds the app. Leave both empty to switch it off.
+
+```sh
+key=$(openssl rand -hex 32)
+sed -i '' "s|^BANK_API_KEY=.*|BANK_API_KEY=$key|" .env
+```
+
+Two more settings in `.env`: `GUARDIAN_COOLING_HOURS` (default 24) is how long a newly added or changed guardian must wait before approving, and `LEVEL2_HOLD_HOURS` (default 24) is when an unanswered level-2 hold is cancelled and refunded.
+
 The app has its own file for the bank URL. Set this Mac's Wi-Fi address:
 
 ```sh
 cp bank-app/.env.example bank-app/.env
 sed -i '' "s|YOUR_MAC_LAN_IP|$(ipconfig getifaddr en0)|" bank-app/.env
-cat bank-app/.env
+grep -q '^BANK_API_KEY=.' .env && sed -i '' "s|^EXPO_PUBLIC_BANK_API_KEY=.*|EXPO_PUBLIC_BANK_API_KEY=$(sed -n 's/^BANK_API_KEY=//p' .env)|" bank-app/.env
 ```
 
 ## 4. Python environment

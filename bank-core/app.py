@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hmac
 import os
 import threading
 import urllib.error
@@ -14,7 +15,8 @@ from typing import Annotated, Literal
 
 import pandas as pd
 import psycopg
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from clock import ICT, DemoClock
@@ -562,6 +564,17 @@ class PersonaIn(BaseModel):
 
 
 app = FastAPI(title="Bank core")
+
+
+@app.middleware("http")
+async def require_bank_key(request: Request, call_next):
+    """BANK_API_KEY đặt thì mọi lệnh ghi cần X-Bank-Key. Không đặt thì như cũ, để tắt nhanh trên sân khấu."""
+    key = os.environ.get("BANK_API_KEY", "")
+    if key and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        sent = request.headers.get("x-bank-key", "")
+        if not hmac.compare_digest(sent.encode("utf-8"), key.encode("utf-8")):
+            return JSONResponse(status_code=401, content={"detail": "Thiếu hoặc sai X-Bank-Key."})
+    return await call_next(request)
 
 
 def _persona_accounts(customer_id: str) -> set[str]:

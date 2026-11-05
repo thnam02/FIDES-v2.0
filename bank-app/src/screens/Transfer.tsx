@@ -4,7 +4,7 @@ import { useNavigation, useRouter } from "expo-router"
 import { AlertTriangle, Camera, Check, ChevronDown, ClipboardPaste, Contact, CreditCard, Image as ImageIcon, QrCode, Receipt, Search, ShieldCheck, TrendingUp, Wallet, X } from "lucide-react-native"
 import { FidesCallNotice, FidesSession, sessionRecorder, useAccountInput } from "fides-sdk"
 
-import { BANK_URL } from "../api/client"
+import { BANK_URL, bankFetch } from "../api/client"
 import { useAccount, useBeneficiaries, useCancelLevel1, useChoice, useConfirmLevel1, usePurposePolicy, useRespond, useSendGuardianRequest, useTransfer } from "../api/queries"
 import { forgetTransferKey } from "../api/idempotency"
 import { GUIDED_FEATURES } from "../dev/guided"
@@ -196,7 +196,7 @@ function AmountNotice() {
   useEffect(() => {
     if (!inCall || !accountId || asked.current) return
     asked.current = true
-    fetch(`${BANK_URL}/accounts/${accountId}/call-notice`, {
+    bankFetch(`${BANK_URL}/accounts/${accountId}/call-notice`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ demo: DEMO }),
@@ -697,7 +697,7 @@ export function ResultScreen() {
     let stop = false
     async function tick() {
       try {
-        const response = await fetch(`${BANK_URL}/clock`)
+        const response = await bankFetch(`${BANK_URL}/clock`)
         if (!response.ok) return
         const body = (await response.json()) as { ts?: string }
         if (!stop && body.ts) setBankNow(Date.parse(body.ts))

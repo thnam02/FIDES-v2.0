@@ -15,8 +15,10 @@ API_KEY=${FIDES_API_KEY:-fides-demo-key}
 FIDES_HMAC_KEY=${FIDES_HMAC_KEY:-fides-demo-hmac}
 export DATABASE_URL REDIS_URL REDIS_PORT REDIS_HOST FIDES_HMAC_KEY ENGINE API_KEY
 DB=${REDIS_URL##*/}
+# Header vô hại khi BANK_API_KEY chưa đặt.
+BANK_AUTH="X-Bank-Key: ${BANK_API_KEY:-}"
 
-curl -sf -X POST "$BANK/clock/pause" >/dev/null
+curl -sf -X POST "$BANK/clock/pause" -H "$BANK_AUTH" >/dev/null
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 ALTER TABLE decisions DISABLE TRIGGER USER;
@@ -165,7 +167,7 @@ if [ "$engine_code" != "200" ]; then
   echo "$engine_body" >&2
   exit 22
 fi
-bank_body=$(curl -sS -X POST "$BANK/demo/reset" -H "Content-Type: application/json" -d "{\"reset_id\":\"$RESET_ID\"}" -w '\n%{http_code}')
+bank_body=$(curl -sS -X POST "$BANK/demo/reset" -H "$BANK_AUTH" -H "Content-Type: application/json" -d "{\"reset_id\":\"$RESET_ID\"}" -w '\n%{http_code}')
 bank_code=${bank_body##*$'\n'}
 if [ "$bank_code" != "200" ]; then
   echo "bank reset $bank_code" >&2

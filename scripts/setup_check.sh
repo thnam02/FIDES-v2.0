@@ -123,6 +123,15 @@ if [ -f "$APP_ENV" ]; then
 else
   fail "bank-app/.env missing" "cp bank-app/.env.example bank-app/.env and set EXPO_PUBLIC_BANK_URL=http://$LAN_IP:$BANK_PORT"
 fi
+app_key=$([ -f "$APP_ENV" ] && sed -n 's/^EXPO_PUBLIC_BANK_API_KEY=//p' "$APP_ENV" | tail -n 1)
+bank_key=${BANK_API_KEY:-}
+if [ -z "$bank_key" ] && [ -z "$app_key" ]; then
+  pass "BANK_API_KEY off (bank-core accepts writes without X-Bank-Key)"
+elif [ "$bank_key" = "$app_key" ]; then
+  pass "BANK_API_KEY on, bank-app/.env has the same key (${#bank_key} characters, value not shown)"
+else
+  fail "BANK_API_KEY in .env and EXPO_PUBLIC_BANK_API_KEY in bank-app/.env differ" "Use the same value in both (or leave both empty), then restart Metro and sh scripts/demo_up.sh"
+fi
 
 echo "== Data and model files"
 for file in \

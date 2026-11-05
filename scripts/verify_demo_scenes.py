@@ -48,6 +48,8 @@ def guided_features() -> dict:
 
 def call(method: str, path: str, body: dict | None = None, key: bool = False) -> tuple[int, dict]:
     headers = {"Content-Type": "application/json"}
+    if SETTINGS.get("BANK_API_KEY"):
+        headers["X-Bank-Key"] = SETTINGS["BANK_API_KEY"]
     if key:
         headers["Idempotency-Key"] = str(uuid.uuid4())
     data = None if body is None else json.dumps(body).encode()

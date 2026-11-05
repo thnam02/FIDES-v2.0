@@ -31,7 +31,16 @@ export function resolveBankUrl(configured: string, platform: string, packagerHos
 
 export const BANK_URL = resolveBankUrl(CONFIGURED, Platform.OS, Constants.expoConfig?.hostUri)
 
-export const bank = createClient<paths>({ baseUrl: BANK_URL })
+const BANK_KEY = process.env.EXPO_PUBLIC_BANK_API_KEY ?? ""
+
+/** Chỉ khi bank-app/.env có EXPO_PUBLIC_BANK_API_KEY. Khoá nằm trong bundle: chặn máy khác trên Wi‑Fi, không giấu được với chính app. */
+export const bankHeaders: Record<string, string> = BANK_KEY ? { "X-Bank-Key": BANK_KEY } : {}
+
+export const bank = createClient<paths>({ baseUrl: BANK_URL, headers: bankHeaders })
+
+export function bankFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, headers: { ...bankHeaders, ...((init.headers as Record<string, string> | undefined) ?? {}) } })
+}
 
 export async function unwrap<T>(pending: Promise<{ data?: T; error?: { detail?: string } }>): Promise<T> {
   const result = await pending

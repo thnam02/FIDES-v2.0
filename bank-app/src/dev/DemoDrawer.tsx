@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react"
 import { Modal, Pressable, Text, View } from "react-native"
 import { FidesSession } from "fides-sdk"
 
-import { BANK_URL } from "../api/client"
+import { BANK_URL, bankFetch } from "../api/client"
 import { FRAUD_CONFIRMED, GUARDIAN_DECLINED } from "../intervention"
 import { DEMO, useBank } from "../store"
 import { colors } from "../ui/parts"
@@ -27,7 +27,7 @@ export function closeDemoDrawer() {
 function story(url: string, fallback: string) {
   const current = useBank.getState().outcome
   if (!current?.transferId) return
-  void fetch(url, { method: "POST" }).then(async (response) => {
+  void bankFetch(url, { method: "POST" }).then(async (response) => {
     if (!response.ok) return
     const body = (await response.json()) as { message?: string }
     useBank.getState().setOutcome({
@@ -73,7 +73,7 @@ export function DemoControls() {
           <Pressable testID="demo-hotline" accessibilityRole="button" onPress={() => {
             const current = useBank.getState().outcome
             if (!current?.transferId) return
-            void fetch(`${BANK_URL}/transfer/${current.transferId}/hotline`, { method: "POST" }).then((response) => {
+            void bankFetch(`${BANK_URL}/transfer/${current.transferId}/hotline`, { method: "POST" }).then((response) => {
               if (!response.ok) return
               useBank.getState().setOutcome({ ...current, hotlineUnlocked: true })
               closeDemoDrawer()

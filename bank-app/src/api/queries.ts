@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { FidesSession } from "fides-sdk"
 
-import { BANK_URL, bank, unwrap } from "./client"
+import { BANK_URL, bank, bankFetch, unwrap } from "./client"
 import { transferKey } from "./idempotency"
 import type { components } from "./openapi"
 import { useBank } from "../store"
@@ -135,7 +135,7 @@ export function useConfirmLevel1() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: async (input: { id: string; responseMs: number }) => {
-      const response = await fetch(`${BANK_URL}/transfers/${input.id}/confirm`, {
+      const response = await bankFetch(`${BANK_URL}/transfers/${input.id}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ response_ms: input.responseMs }),
@@ -152,7 +152,7 @@ export function useCancelLevel1() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: async (input: { id: string; responseMs: number }) => {
-      const response = await fetch(`${BANK_URL}/transfers/${input.id}/cancel`, {
+      const response = await bankFetch(`${BANK_URL}/transfers/${input.id}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ response_ms: input.responseMs }),
@@ -168,7 +168,7 @@ export function usePurposePolicy() {
   return useQuery({
     queryKey: ["purpose-policy"],
     queryFn: async () => {
-      const response = await fetch(`${BANK_URL}/config`)
+      const response = await bankFetch(`${BANK_URL}/config`)
       if (!response.ok) throw new Error("config")
       return (await response.json()) as { purpose_amount_vnd: number; hotline?: string; hotline_tel?: string }
     },
@@ -180,7 +180,7 @@ export function useChoice() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: async (input: { decisionId: string; choice: "pause" | "cancel" | "continue"; responseMs: number }) => {
-      const response = await fetch(`${BANK_URL}/decisions/${input.decisionId}/choice`, {
+      const response = await bankFetch(`${BANK_URL}/decisions/${input.decisionId}/choice`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ choice: input.choice, response_ms: input.responseMs }),
@@ -195,7 +195,7 @@ export function useChoice() {
 export function useSendGuardianRequest() {
   return useMutation({
     mutationFn: async (transferId: string) => {
-      const response = await fetch(`${BANK_URL}/transfer/${transferId}/guardian-request`, { method: "POST" })
+      const response = await bankFetch(`${BANK_URL}/transfer/${transferId}/guardian-request`, { method: "POST" })
       if (!response.ok) await rejectBank(response, "guardian-request")
       return response.json() as Promise<{ transfer_id: string; request_id: string; status: string; message: string }>
     },
