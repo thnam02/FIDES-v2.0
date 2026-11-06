@@ -1,5 +1,5 @@
 import { type ReactNode } from "react"
-import { Pressable, ScrollView, Text, View } from "react-native"
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import { useRouter } from "expo-router"
 import { ArrowLeft, Bell, Home, ShieldCheck } from "lucide-react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -21,11 +21,15 @@ export function Screen({ children, call = false, footer }: { children: ReactNode
   const insets = useSafeAreaInsets()
   return (
     <View style={{ flex: 1, backgroundColor: colors.white, paddingTop: insets.top }}>
-      <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentInsetAdjustmentBehavior="never" contentContainerStyle={{ gap: 20, paddingHorizontal: 20, paddingTop: 24, paddingBottom: footer ? 240 : insets.bottom + 24 }}>
+      <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentInsetAdjustmentBehavior="never" contentContainerStyle={{ gap: 20, paddingHorizontal: 20, paddingTop: 24, paddingBottom: footer ? 16 : insets.bottom + 24 }}>
         {call ? <FidesCallIndicator /> : null}
         {children}
       </ScrollView>
-      {footer ? <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + 12, backgroundColor: colors.white }}>{footer}</View> : null}
+      {footer ? (
+        <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 8, backgroundColor: colors.white, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#D7E4E8" }}>
+          {footer}
+        </View>
+      ) : null}
     </View>
   )
 }

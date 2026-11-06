@@ -51,10 +51,6 @@ appId: com.hainamtran.saobank
     direction: DOWN
 - tapOn:
     id: "confirm-transfer"
-- scrollUntilVisible:
-    element:
-      id: "choice-pause"
-    direction: DOWN
 - assertVisible: "Tạm dừng để xác minh"
 - tapOn:
     id: "choice-pause"

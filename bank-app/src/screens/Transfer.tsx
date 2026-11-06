@@ -416,14 +416,16 @@ function ReasonLines({ lines, restated, icon, variant, lineTestID, center }: { l
   if (!visible.length && !hidden.length) return null
   const box = tone === "hold" ? HOLD_BOX : REMINDER_BOX
   return (
-    <View style={{ backgroundColor: box.bg, borderColor: box.border, borderWidth: 1, borderRadius: 16, padding: 16, gap: 12 }}>
-      {tone === "hold" ? <Text style={{ color: colors.navy, fontSize: type.small, fontWeight: "700" }}>{REASONS_HEADING}</Text> : null}
+    <View style={{ backgroundColor: box.bg, borderColor: box.border, borderWidth: 1, borderRadius: 16, padding: 12, gap: 8 }}>
       {visible.map((line, index) => (
-        <View key={line} style={{ flexDirection: "row", gap: 12, alignItems: "flex-start", paddingBottom: index < visible.length - 1 || hidden.length ? 12 : 0, borderBottomWidth: index < visible.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: box.divider }}>
+        <View key={line} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start", paddingBottom: index < visible.length - 1 ? 8 : 0, borderBottomWidth: index < visible.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: box.divider }}>
           <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: box.iconBg, alignItems: "center", justifyContent: "center" }}>
             <AlertTriangle size={14} color={box.icon} />
           </View>
-          <Text testID={lineTestID} style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.4 }}>{line}</Text>
+          <Text testID={lineTestID} style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.35 }}>
+            {tone === "hold" && index === 0 ? <Text style={{ fontWeight: "700", fontSize: type.small }}>{REASONS_HEADING}{"  "}</Text> : null}
+            {line}
+          </Text>
         </View>
       ))}
       {hidden.length ? (
@@ -440,15 +442,15 @@ function GateNotes({ notes }: { notes: string[] }) {
   const type = useType()
   if (!notes.length) return null
   return (
-    <View style={{ backgroundColor: INSTRUCT_BOX.bg, borderColor: INSTRUCT_BOX.border, borderWidth: 1, borderRadius: 16, padding: 16, gap: 12 }}>
+    <View style={{ backgroundColor: INSTRUCT_BOX.bg, borderColor: INSTRUCT_BOX.border, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
       {notes.map((line, index) => {
         const Icon = line === HANGUP_NOTE ? PhoneOff : Clock
         return (
-          <View key={line} style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
+          <View key={line} style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
             <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: INSTRUCT_BOX.iconBg, alignItems: "center", justifyContent: "center" }}>
               <Icon size={14} color={INSTRUCT_BOX.icon} />
             </View>
-            <Text testID={index === 0 ? "level-2-note" : undefined} style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.4 }}>{line}</Text>
+            <Text testID={index === 0 ? "level-2-note" : undefined} style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.3 }}>{line}</Text>
           </View>
         )
       })}
@@ -828,74 +830,82 @@ export function ResultScreen() {
     const tel = policy.data?.hotline_tel || "1900545413"
     const hotline = policy.data?.hotline || copy.hotline
     const paused = outcome.status === "pending_draft"
+    const footer = (
+      <View style={{ gap: 8 }}>
+        {phase === "choose" ? (
+          <>
+            <Button testID="choice-hotline" outline label={HOTLINE_BUTTON} onPress={() => void Linking.openURL(`tel:${tel}`)} />
+            {paused ? null : <Button testID="choice-pause" label={PAUSE_BUTTON} onPress={() => pick("pause")} />}
+            {showGuardian ? (
+              <Button testID="choice-guardian" outline label={GUARDIAN_BUTTON} onPress={() => {
+                if (sendGuardian.isPending) return
+                sendGuardian.mutate(outcome.transferId, {
+                  onSuccess: () => setGuardianNote({ text: GUARDIAN_SENT, error: false }),
+                  onError: (error) => setGuardianNote({ text: error.message, error: true }),
+                })
+              }} />
+            ) : null}
+            {showGuardian && guardianNote ? (
+              <Text testID={guardianNote.error ? "guardian-refused" : "guardian-sent"} style={{ color: guardianNote.error ? colors.danger : colors.navy, fontSize: type.body }}>{guardianNote.text}</Text>
+            ) : null}
+            <Button testID="choice-cancel" outline label={CANCEL_BUTTON} onPress={() => {
+              respond.mutate(
+                { id: outcome.transferId, body: { cancel: true } },
+                { onSuccess: () => setPhase("cancelled"), onError: (error) => setNotice(error.message) },
+              )
+            }} />
+            <Button testID="choice-continue" quiet disabled={!gate.enabled} label={gate.label} onPress={() => {
+              if (!gate.enabled) return
+              respond.mutate(
+                { id: outcome.transferId, body: { proceed: true, call: FidesSession.callBlock() } },
+                { onSuccess: () => setPhase("done"), onError: (error) => setNotice(error.message) },
+              )
+            }} />
+          </>
+        ) : null}
+        {phase === "paused" ? (
+          <View style={{ backgroundColor: colors.mint, borderRadius: 16, padding: 12, gap: 8 }}>
+            <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
+              <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "#D7F6F2", alignItems: "center", justifyContent: "center" }}>
+                <ShieldCheck size={14} color={colors.deep} />
+              </View>
+              <Text style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.35 }}>{copy.pausedDraft}</Text>
+            </View>
+            <Pressable testID="bank-hotline" accessibilityRole="link" accessibilityLabel={hotline} onPress={() => void Linking.openURL(`tel:${tel}`)} style={{ minHeight: 44, justifyContent: "center" }}>
+              <Text selectable style={{ color: colors.deep, fontSize: type.title, fontWeight: "700" }}>{hotline}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {phase === "cancelled" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.cancelledTransfer}</Text> : null}
+        {phase === "done" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.success}</Text> : null}
+        {phase !== "choose" ? <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} /> : null}
+        {notice ? <Text style={{ color: colors.danger }}>{notice}</Text> : null}
+        {choice.isError ? <Text style={{ color: colors.danger }}>{choice.error.message}</Text> : null}
+      </View>
+    )
     return (
-      <Screen call>
+      <Screen call footer={footer}>
         <Header title={paused ? copy.level2Title : copy.level2Check} tools />
-        <View testID="level-2" style={{ gap: 16 }}>
+        <View testID="level-2" style={{ gap: 12 }}>
           <Text testID="level-2-headline" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{outcome.headline || copy.level2Check}</Text>
           {outcome.strengthened ? (
-            <View testID="level-2-strengthened" style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: PILL.bg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}>
+            <View testID="level-2-strengthened" style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: PILL.bg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 }}>
               <Clock size={14} color={PILL.text} />
               <Text style={{ flexShrink: 1, color: PILL.text, fontSize: type.small, fontWeight: "700", lineHeight: type.small * 1.3 }}>{STRENGTHENED_HEADLINE_NOTE}</Text>
             </View>
           ) : null}
-          <Card>
-            <Text style={{ color: colors.navy, fontWeight: "700" }}>{who}</Text>
-            <Text style={{ color: "#64748B", fontSize: type.small }}>{copy.bankName} · {showAccount(outcome.payee)}</Text>
-            <Text style={{ color: colors.deep, fontSize: type.title, fontWeight: "700" }}>{vnd(outcome.amount)}</Text>
-          </Card>
+          <View style={{ backgroundColor: colors.mint, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Text numberOfLines={1} style={{ color: colors.navy, fontSize: type.body }}>
+              <Text style={{ fontWeight: "700" }}>{who}</Text>
+              {" · "}
+              <Text style={{ color: "#64748B" }}>{showAccount(outcome.payee)}</Text>
+              {" · "}
+              <Text style={{ color: colors.deep, fontWeight: "700" }}>{vnd(outcome.amount)}</Text>
+            </Text>
+          </View>
           <ReasonLines lines={outcome.reasonsVi} restated={outcome.restatedVi} icon lineTestID="level-2-line" />
           <GateNotes notes={gate.notes} />
           <EntryDetailLine />
-          {phase === "choose" ? (
-            <>
-              <Button testID="choice-hotline" outline label={HOTLINE_BUTTON} onPress={() => void Linking.openURL(`tel:${tel}`)} />
-              {paused ? null : <Button testID="choice-pause" label={PAUSE_BUTTON} onPress={() => pick("pause")} />}
-              {showGuardian ? (
-                <Button testID="choice-guardian" outline label={GUARDIAN_BUTTON} onPress={() => {
-                  if (sendGuardian.isPending) return
-                  sendGuardian.mutate(outcome.transferId, {
-                    onSuccess: () => setGuardianNote({ text: GUARDIAN_SENT, error: false }),
-                    onError: (error) => setGuardianNote({ text: error.message, error: true }),
-                  })
-                }} />
-              ) : null}
-              {showGuardian && guardianNote ? (
-                <Text testID={guardianNote.error ? "guardian-refused" : "guardian-sent"} style={{ color: guardianNote.error ? colors.danger : colors.navy, fontSize: type.body }}>{guardianNote.text}</Text>
-              ) : null}
-              <Button testID="choice-cancel" outline label={CANCEL_BUTTON} onPress={() => {
-                respond.mutate(
-                  { id: outcome.transferId, body: { cancel: true } },
-                  { onSuccess: () => setPhase("cancelled"), onError: (error) => setNotice(error.message) },
-                )
-              }} />
-              <Button testID="choice-continue" quiet disabled={!gate.enabled} label={gate.label} onPress={() => {
-                if (!gate.enabled) return
-                respond.mutate(
-                  { id: outcome.transferId, body: { proceed: true, call: FidesSession.callBlock() } },
-                  { onSuccess: () => setPhase("done"), onError: (error) => setNotice(error.message) },
-                )
-              }} />
-            </>
-          ) : null}
-          {phase === "paused" ? (
-            <View style={{ backgroundColor: colors.mint, borderRadius: 16, padding: 16, gap: 12 }}>
-              <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
-                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "#D7F6F2", alignItems: "center", justifyContent: "center" }}>
-                  <ShieldCheck size={14} color={colors.deep} />
-                </View>
-                <Text style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.4 }}>{copy.pausedDraft}</Text>
-              </View>
-              <Pressable testID="bank-hotline" accessibilityRole="link" accessibilityLabel={hotline} onPress={() => void Linking.openURL(`tel:${tel}`)} style={{ minHeight: 44, justifyContent: "center" }}>
-                <Text selectable style={{ color: colors.deep, fontSize: type.title, fontWeight: "700" }}>{hotline}</Text>
-              </Pressable>
-            </View>
-          ) : null}
-          {phase === "cancelled" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.cancelledTransfer}</Text> : null}
-          {phase === "done" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.success}</Text> : null}
-          {phase !== "choose" ? <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} /> : null}
-          {notice ? <Text style={{ color: colors.danger }}>{notice}</Text> : null}
-          {choice.isError ? <Text style={{ color: colors.danger }}>{choice.error.message}</Text> : null}
         </View>
       </Screen>
     )

@@ -55,25 +55,13 @@ appId: com.hainamtran.saobank
     direction: DOWN
 - tapOn:
     id: "confirm-transfer"
-- assertVisible: ".*nhiều dấu hiệu lừa đảo cùng lúc.*"
-- scrollUntilVisible:
-    element:
-      id: "choice-pause"
-    direction: DOWN
 - assertVisible: "Tạm dừng để xác minh"
+- assertVisible: ".*nhiều dấu hiệu lừa đảo cùng lúc.*"
 - tapOn:
     id: "reasons-toggle"
 - assertVisible: ".*theo từng cụm.*"
 - assertVisible: ".*cuộc gọi.*"
-- scrollUntilVisible:
-    element:
-      id: "choice-continue"
-    direction: DOWN
 - assertVisible: "Có thể tiếp tục sau.*"
-- scrollUntilVisible:
-    element:
-      id: "demo-drawer"
-    direction: UP
 - tapOn:
     id: "demo-drawer"
 - tapOn:

@@ -51,28 +51,16 @@ appId: com.hainamtran.saobank
     direction: DOWN
 - tapOn:
     id: "confirm-transfer"
-- scrollUntilVisible:
-    element:
-      id: "choice-pause"
-    direction: DOWN
 - assertVisible: "Tạm dừng để xác minh"
 - tapOn:
     id: "reasons-toggle"
 - assertVisible: ".*gần hết số dư.*"
 - assertVisible: ".*cuộc gọi.*"
 - assertVisible: ".*tất toán.*"
-- scrollUntilVisible:
-    element:
-      id: "demo-drawer"
-    direction: UP
 - tapOn:
     id: "demo-drawer"
 - tapOn:
     id: "call-end"
-- scrollUntilVisible:
-    element:
-      id: "choice-continue"
-    direction: DOWN
 - tapOn:
     id: "choice-continue"
 - assertVisible: "Chuyển tiền thành công"
