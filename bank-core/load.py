@@ -16,6 +16,12 @@ HUYNH_SAVINGS = "A0077690"
 # Đầu kỳ dương, nhỏ. Số dư cuối = đầu kỳ + sổ (khoảng 29 triệu), chưa đủ 120 triệu.
 HUYNH_OPENING = 3_000_000
 SAVINGS_PRINCIPAL = 150_000_000
+# Cảnh 3: khách hợp lệ riêng, không dùng Huỳnh/Hoàng/Lê/Trương. Không có trong parquet.
+SCENE3_CUSTOMER = "C990001"
+SCENE3_CHECKING = "A9900001"
+SCENE3_SAVINGS = "A9900002"
+SCENE3_NAME = "Vũ Thị Lan"
+SCENE3_CHECKING_BALANCE = 29_100_000
 # Màn hình chọn tài khoản cá nhân số dư cao nhất. Sổ kia phải thấp hơn A0072556
 # vì hạn mức 120 triệu chỉ được nâng trên tài khoản đó.
 OTHER_PERSONAL_CAP = 14_000_000
@@ -230,6 +236,44 @@ def _pension_story(conn) -> None:
         _set_opening(conn, row["id"], OTHER_PERSONAL_CAP)
 
 
+def _scene3_story(conn) -> None:
+    """Cảnh 3: khách hợp lệ khác Huỳnh. Thanh toán khoảng 29 triệu, sổ 150 triệu, không giám hộ."""
+    conn.execute(
+        """
+        INSERT INTO bank.accounts
+        (id, customer_id, holder_name, segment, balance, opening_balance, status, has_guardian, account_type, bank_id, limit_per_txn, limit_per_day)
+        VALUES (%s, %s, %s, 'thường', %s, %s, 'open', false, 'personal', 'B01', 500000000, 5000000000)
+        ON CONFLICT (id) DO UPDATE SET
+            customer_id = EXCLUDED.customer_id,
+            holder_name = EXCLUDED.holder_name,
+            balance = EXCLUDED.balance,
+            opening_balance = EXCLUDED.opening_balance,
+            status = 'open',
+            has_guardian = false,
+            account_type = 'personal',
+            limit_per_txn = GREATEST(bank.accounts.limit_per_txn, EXCLUDED.limit_per_txn),
+            limit_per_day = GREATEST(bank.accounts.limit_per_day, EXCLUDED.limit_per_day)
+        """,
+        (SCENE3_CHECKING, SCENE3_CUSTOMER, SCENE3_NAME, SCENE3_CHECKING_BALANCE, SCENE3_CHECKING_BALANCE),
+    )
+    conn.execute(
+        """
+        INSERT INTO bank.accounts
+        (id, customer_id, holder_name, segment, balance, opening_balance, status, has_guardian, account_type, bank_id, limit_per_txn, limit_per_day)
+        VALUES (%s, %s, %s, 'thường', %s, %s, 'open', false, 'savings', 'B01', 0, 0)
+        ON CONFLICT (id) DO UPDATE SET
+            customer_id = EXCLUDED.customer_id,
+            holder_name = EXCLUDED.holder_name,
+            balance = EXCLUDED.balance,
+            opening_balance = EXCLUDED.opening_balance,
+            status = 'open',
+            has_guardian = false,
+            account_type = 'savings'
+        """,
+        (SCENE3_SAVINGS, SCENE3_CUSTOMER, SCENE3_NAME, SAVINGS_PRINCIPAL, SAVINGS_PRINCIPAL),
+    )
+
+
 def load(conn) -> int:
     conn.execute(SCHEMA)
     conn.execute("ALTER TABLE bank.accounts ADD COLUMN IF NOT EXISTS opening_balance bigint NOT NULL DEFAULT 0")
@@ -343,6 +387,7 @@ def load(conn) -> int:
                 entries,
             )
     _pension_story(conn)
+    _scene3_story(conn)
     for person in payload["personas"]:
         guard = person.get("guardian") or {}
         phone = guard.get("guardian_phone_number_id")

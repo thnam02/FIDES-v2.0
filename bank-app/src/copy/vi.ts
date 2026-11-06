@@ -93,6 +93,7 @@ export const copy = {
     nhan_vien_van_phong: { title: "Trương Gia Thịnh", hint: "TP Hồ Chí Minh", mark: "TT" },
     chu_dn_nho: { title: "Hoàng Văn Tâm", hint: "Doanh nghiệp nhỏ · Hải Phòng", mark: "HT" },
     sinh_vien: { title: "Lê Kim Trân", hint: "Hà Nội", mark: "LT" },
+    co_so_tiet_kiem: { title: "Vũ Thị Lan", hint: "Đà Nẵng · có sổ tiết kiệm", mark: "VL" },
   },
   bankHint: "Tài khoản BVC bank",
   dong: "đồng",

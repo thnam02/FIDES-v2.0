@@ -112,7 +112,7 @@ About 10 seconds for npm and 20 seconds for Pods with a warm cache.
 
 ## 6. Demo data (copy from the original Mac)
 
-`fides-sim/out/` is git-ignored: 32 parquet files, 194 MB (`observed/` 164 MB, `truth/` 30 MB). bank-core, the Redis snapshot and the event loader all read it. The demo personas (Hoàng `A0051289`, Lê `A0031239`, Huỳnh `A0072556` with savings book `A0077690`, Trương `A0002119`) exist only in this exact copy.
+`fides-sim/out/` is git-ignored: 32 parquet files, 194 MB (`observed/` 164 MB, `truth/` 30 MB). bank-core, the Redis snapshot and the event loader all read it. The parquet demo personas (Hoàng `A0051289`, Lê `A0031239`, Huỳnh `A0072556` with savings book `A0077690`, Trương `A0002119`) exist only in this exact copy. `demo_reset.sh` also inserts Vũ Thị Lan (`A9900001` / savings `A9900002`) for walkthrough scene 3.
 
 On the original Mac:
 

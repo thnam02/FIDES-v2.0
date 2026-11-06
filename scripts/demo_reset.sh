@@ -174,7 +174,7 @@ if [ "$bank_code" != "200" ]; then
   echo "$bank_body" >&2
   exit 22
 fi
-# Lệnh treo và yêu cầu giám hộ của bốn khách demo. Không đụng sổ lịch sử đã xong.
+# Lệnh treo và yêu cầu giám hộ của năm khách demo. Không đụng sổ lịch sử đã xong.
 # Người giám hộ của bà Mận đã đồng ý từ 1/9, quá thời gian chờ GUARDIAN_COOLING_HOURS.
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 ALTER TABLE bank.guardians ADD COLUMN IF NOT EXISTS consent boolean NOT NULL DEFAULT false;
@@ -186,7 +186,8 @@ WHERE account_id IN (
     'A0000623', 'A0050272', 'A0072556', 'A0077690',
     'A0002119',
     'A0002845', 'A0051289', 'A0072782', 'A0078375', 'A0097589',
-    'A0031239'
+    'A0031239',
+    'A9900001', 'A9900002'
 );
 DELETE FROM bank.idempotency
 WHERE transfer_id IN (
@@ -195,7 +196,8 @@ WHERE transfer_id IN (
         'A0000623', 'A0050272', 'A0072556', 'A0077690',
         'A0002119',
         'A0002845', 'A0051289', 'A0072782', 'A0078375', 'A0097589',
-        'A0031239'
+        'A0031239',
+        'A9900001', 'A9900002'
     )
       AND status IN ('pending_draft', 'needs_verification', 'held', 'blocked_pending_hangup', 'awaiting_confirmation', 'expired')
 );
@@ -204,7 +206,8 @@ WHERE from_account IN (
     'A0000623', 'A0050272', 'A0072556', 'A0077690',
     'A0002119',
     'A0002845', 'A0051289', 'A0072782', 'A0078375', 'A0097589',
-    'A0031239'
+    'A0031239',
+    'A9900001', 'A9900002'
 )
   AND status IN ('pending_draft', 'needs_verification', 'held', 'blocked_pending_hangup', 'awaiting_confirmation', 'expired');
 SQL
@@ -261,6 +264,14 @@ if "A0072556" in seen:
         bad.append(f"A0072556: đầu kỳ {opening} không nằm trong 2–4 triệu")
     if balance >= 120_000_000:
         bad.append(f"A0072556: số dư {balance} đã đủ 120 triệu trước khi tất toán")
+if "A9900001" in seen:
+    balance, opening, net = seen["A9900001"]
+    if not 28_000_000 <= balance <= 31_000_000:
+        bad.append(f"A9900001: số dư {balance} không nằm trong 28–31 triệu")
+    if balance >= 120_000_000:
+        bad.append(f"A9900001: số dư {balance} đã đủ 120 triệu trước khi tất toán")
+    if opening != 29_100_000 or net != 0:
+        bad.append(f"A9900001: cần đầu kỳ 29100000 và sổ 0, gặp đầu kỳ {opening} sổ {net}")
 entry_sql = f"""
 SELECT account_id, direction, amount
 FROM bank.entries
@@ -288,7 +299,8 @@ for line in entries.stdout.splitlines():
 book_sql = """
 SELECT id, status, account_type, balance
 FROM bank.accounts
-WHERE id = 'A0077690';
+WHERE id IN ('A0077690', 'A9900002')
+ORDER BY id;
 """
 book = subprocess.run(
     ["psql", os.environ["DATABASE_URL"], "-v", "ON_ERROR_STOP=1", "-t", "-A", "-F", "|", "-c", book_sql],
@@ -299,17 +311,24 @@ book = subprocess.run(
 if book.returncode != 0:
     sys.stderr.write(book.stderr or book.stdout)
     sys.exit(1)
-line = next((item for item in book.stdout.splitlines() if item.strip()), "")
-parts = line.split("|") if line else []
-if len(parts) != 4 or parts[1] != "open" or parts[2] != "savings" or int(parts[3]) != 150_000_000:
-    bad.append(f"A0077690: cần sổ tiết kiệm mở 150000000, gặp {line or 'không có'}")
+books = {}
+for line in book.stdout.splitlines():
+    if not line.strip():
+        continue
+    parts = line.split("|")
+    if len(parts) == 4:
+        books[parts[0]] = parts
+for book_id in ("A0077690", "A9900002"):
+    parts = books.get(book_id)
+    if not parts or parts[1] != "open" or parts[2] != "savings" or int(parts[3]) != 150_000_000:
+        bad.append(f"{book_id}: cần sổ tiết kiệm mở 150000000, gặp {'|'.join(parts) if parts else 'không có'}")
 funds_sql = """
 SELECT COUNT(*) FROM (
     SELECT id FROM bank.products
-    WHERE account_id IN ('A0072556', 'A0077690') AND kind = 'savings_liquidation'
+    WHERE account_id IN ('A0072556', 'A0077690', 'A9900001', 'A9900002') AND kind = 'savings_liquidation'
     UNION ALL
     SELECT tx_id FROM bank.entries
-    WHERE account_id IN ('A0072556', 'A0077690') AND tx_type = 'savings_liquidation'
+    WHERE account_id IN ('A0072556', 'A0077690', 'A9900001', 'A9900002') AND tx_type = 'savings_liquidation'
 ) events;
 """
 funds = subprocess.run(
@@ -328,7 +347,7 @@ if bad:
     sys.exit(1)
 PY
 # Sổ Redis không giữ số dư hiện tại. product_savings_7d là zset. Xoá mọi tất toán
-# của A0072556 trong cửa sổ demo để khớp Postgres vừa nạp (chưa tất toán).
+# của Huỳnh và Vũ trong cửa sổ demo để khớp Postgres vừa nạp (chưa tất toán).
 FIDES_ROOT="$ROOT" python3 - <<'PY'
 import os
 import subprocess
@@ -341,8 +360,6 @@ sys.path[:0] = [os.environ["FIDES_ROOT"]]
 from engine.common.hashing import account_hash, reset_key_cache
 
 reset_key_cache()
-account = account_hash("A0072556")
-key = f"f:prod:savings_liquidation:{account}"
 ict = ZoneInfo("Asia/Ho_Chi_Minh")
 start = int(datetime(2026, 9, 14, tzinfo=ict).timestamp() * 1_000_000)
 end = int(datetime(2026, 9, 23, tzinfo=ict).timestamp() * 1_000_000)
@@ -369,14 +386,16 @@ def redis_call(args: list[str]) -> subprocess.CompletedProcess[str]:
     sys.stderr.write(last)
     sys.exit(1)
 
-removed = redis_call(["ZREMRANGEBYSCORE", key, str(start), str(end)])
-left = redis_call(["ZCOUNT", key, str(start), str(end)])
-if left.stdout.strip() != "0":
-    sys.stderr.write(f"product_savings_7d của A0072556 còn {left.stdout.strip()}\n")
-    sys.exit(1)
-print(f"product_savings_7d A0072556 {left.stdout.strip()}")
+for account in ("A0072556", "A9900001"):
+    key = f"f:prod:savings_liquidation:{account_hash(account)}"
+    redis_call(["ZREMRANGEBYSCORE", key, str(start), str(end)])
+    left = redis_call(["ZCOUNT", key, str(start), str(end)])
+    if left.stdout.strip() != "0":
+        sys.stderr.write(f"product_savings_7d của {account} còn {left.stdout.strip()}\n")
+        sys.exit(1)
+    print(f"product_savings_7d {account} {left.stdout.strip()}")
 PY
-# Purge ở trên xoá mọi beh:v24. Chỉ Trương, task new_typed, được gieo lại cho cảnh C.
+# Purge ở trên xoá mọi beh:v24. Trương, Huỳnh và Vũ được gieo lại new_typed.
 python3 "$ROOT/scripts/seed_demo_baseline.py"
 python3 "$ROOT/scripts/seed_demo_baseline.py" --check
 # Engine phải sống và đã chấm một lần, để lệnh demo đầu không rơi vào hạn 300 ms.

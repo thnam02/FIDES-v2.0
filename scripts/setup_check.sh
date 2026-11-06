@@ -115,6 +115,8 @@ if [ -f "$APP_ENV" ]; then
   url=$(sed -n 's/^EXPO_PUBLIC_BANK_URL=//p' "$APP_ENV" | tail -n 1)
   if [ -z "$url" ]; then
     fail "bank-app/.env has no EXPO_PUBLIC_BANK_URL" "echo EXPO_PUBLIC_BANK_URL=http://$LAN_IP:$BANK_PORT >> bank-app/.env"
+  elif [ "$url" = "http://127.0.0.1:$BANK_PORT" ] || [ "$url" = "http://localhost:$BANK_PORT" ]; then
+    pass "bank-app/.env follows Metro ($url): same Wi-Fi or iPhone hotspot, run scripts/phone_connect.sh after a network change"
   elif [ -n "$LAN_IP" ] && [ "$url" != "http://$LAN_IP:$BANK_PORT" ]; then
     warn "bank-app/.env points at $url, this Mac is http://$LAN_IP:$BANK_PORT" "Set EXPO_PUBLIC_BANK_URL=http://$LAN_IP:$BANK_PORT in bank-app/.env and restart Metro (simulator only: http://127.0.0.1:$BANK_PORT also works)"
   else
@@ -173,11 +175,11 @@ if psql "$DATABASE_URL" -tAc 'select 1' >/dev/null 2>&1; then
   else
     fail "bank ledger not loaded (bank.accounts: ${accounts:-missing})" "BANK_RESEED=1 sh scripts/demo_up.sh   (first start creates the bank schema and loads it)"
   fi
-  personas=$(psql "$DATABASE_URL" -tAc "select count(*) from bank.accounts where id in ('A0051289','A0031239','A0072556','A0077690','A0002119')" 2>/dev/null || true)
-  if [ "${personas:-0}" = "5" ]; then
-    pass "demo personas present (Hoàng, Lê, Huỳnh + savings book, Trương)"
+  personas=$(psql "$DATABASE_URL" -tAc "select count(*) from bank.accounts where id in ('A0051289','A0031239','A0072556','A0077690','A0002119','A9900001','A9900002')" 2>/dev/null || true)
+  if [ "${personas:-0}" = "7" ]; then
+    pass "demo personas present (Hoàng, Lê, Huỳnh + savings, Vũ + savings, Trương)"
   else
-    fail "demo personas missing (${personas:-0}/5)" "The parquet files are not the seed-42 dataset. Copy fides-sim/out/ from the original Mac, then BANK_RESEED=1 sh scripts/demo_up.sh"
+    fail "demo personas missing (${personas:-0}/7)" "The parquet files are not the seed-42 dataset, or demo_reset has not seeded Vũ Thị Lan. Copy fides-sim/out/ from the original Mac, then BANK_RESEED=1 sh scripts/demo_up.sh and sh scripts/demo_reset.sh"
   fi
   for table in decisions responses events; do
     if psql "$DATABASE_URL" -tAc "select 1 from $table limit 1" >/dev/null 2>&1; then

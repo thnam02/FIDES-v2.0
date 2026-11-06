@@ -776,13 +776,13 @@ def backfill_counterparties(conn) -> None:
 
 
 def ensure_scene_capacity(conn) -> None:
-    """Cảnh B chuyển 120 triệu. Sổ parquet để hạn mức 100 triệu."""
+    """Cảnh 3 (Vũ) và cảnh 4 (Huỳnh) chuyển 120 triệu. Sổ parquet để hạn mức 100 triệu."""
     conn.execute(
         """
         UPDATE bank.accounts
         SET limit_per_txn = GREATEST(limit_per_txn, 500000000),
             limit_per_day = GREATEST(limit_per_day, 5000000000)
-        WHERE id = 'A0072556'
+        WHERE id IN ('A0072556', 'A9900001')
         """
     )
 

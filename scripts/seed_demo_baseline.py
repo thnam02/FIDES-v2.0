@@ -1,4 +1,4 @@
-"""Chỉ Trương Gia Thịnh (A0002119, cảnh C) có baseline. Các tài khoản demo khác bị xoá khoá beh, không flush."""
+"""Baseline new_typed cho Trương (cảnh 5), Huỳnh (cảnh 4) và Vũ (cảnh 3). Các khoá beh khác bị xoá, không flush."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ sys.path[:0] = [str(REPO)]
 from engine.common.hashing import account_hash, reset_key_cache
 
 TASKS = ("saved_payee", "new_typed", "new_pasted", "qr")
+KEPT_NEW_TYPED = ("A0002119", "A0072556", "A9900001")
 
 
 def key_for(user: str, task: str) -> str:
@@ -32,7 +33,7 @@ def quality_name(sessions: int) -> str:
         return "low"
     return "none"
 
-# Mọi tài khoản của bốn khách demo. Chỉ A0002119 được giữ baseline new_typed.
+# Mọi tài khoản của năm khách demo. Chỉ ba tài khoản thanh toán được giữ baseline new_typed.
 DEMO_ACCOUNTS = (
     "A0000623",
     "A0050272",
@@ -45,8 +46,9 @@ DEMO_ACCOUNTS = (
     "A0078375",
     "A0097589",
     "A0031239",
+    "A9900001",
+    "A9900002",
 )
-SCENE_C = "A0002119"
 
 ICT = ZoneInfo("Asia/Ho_Chi_Minh")
 ORDINARY = {
@@ -85,10 +87,9 @@ def redis(*args: str) -> str:
     return done.stdout
 
 
-def seed() -> str:
+def seed() -> None:
     os.environ.setdefault("FIDES_HMAC_KEY", "fides-demo-hmac")
     reset_key_cache()
-    kept = account_hash(SCENE_C)
     start = datetime(2026, 9, 1, tzinfo=ICT)
     records = []
     for index in range(10):
@@ -100,40 +101,40 @@ def seed() -> str:
         user = account_hash(account)
         for task in TASKS:
             key = key_for(user, task)
-            if account == SCENE_C and task == "new_typed":
+            if account in KEPT_NEW_TYPED and task == "new_typed":
                 redis("SET", key, payload)
                 print("kept", key, "sessions", len(records))
                 continue
             redis("DEL", key)
-    print("baseline only", kept)
-    return kept
+    print("baseline", " ".join(KEPT_NEW_TYPED))
 
 
 def check() -> None:
-    """Cảnh C cần baseline new_typed của Trương, đủ medium, trước ngày demo."""
+    """Ba tài khoản thanh toán cần baseline new_typed đủ medium, trước ngày demo."""
     os.environ.setdefault("FIDES_HMAC_KEY", "fides-demo-hmac")
     reset_key_cache()
     cut = int(datetime(2026, 9, 21, tzinfo=ICT).timestamp() * 1_000_000)
-    raw = redis("--raw", "GET", key_for(account_hash(SCENE_C), "new_typed"))
-    if not raw.strip():
-        raise SystemExit("thiếu baseline new_typed của A0002119")
-    records = json.loads(raw).get("records") or []
-    prior = [
-        row
-        for row in records
-        if int(row.get("ts") or 0) < cut and int(row.get("eligible_at") or 0) <= cut
-    ]
-    quality = quality_name(len(prior))
-    if len(prior) < 3 or quality not in {"medium", "high"}:
-        raise SystemExit(f"A0002119 new_typed: {len(prior)} phiên, chất lượng {quality}")
+    for account in KEPT_NEW_TYPED:
+        raw = redis("--raw", "GET", key_for(account_hash(account), "new_typed"))
+        if not raw.strip():
+            raise SystemExit(f"thiếu baseline new_typed của {account}")
+        records = json.loads(raw).get("records") or []
+        prior = [
+            row
+            for row in records
+            if int(row.get("ts") or 0) < cut and int(row.get("eligible_at") or 0) <= cut
+        ]
+        quality = quality_name(len(prior))
+        if len(prior) < 3 or quality not in {"medium", "high"}:
+            raise SystemExit(f"{account} new_typed: {len(prior)} phiên, chất lượng {quality}")
+        print(f"baseline {account} new_typed {len(prior)} {quality}")
     for account in DEMO_ACCOUNTS:
         for task in TASKS:
-            if account == SCENE_C and task == "new_typed":
+            if account in KEPT_NEW_TYPED and task == "new_typed":
                 continue
             extra = redis("--raw", "GET", key_for(account_hash(account), task)).strip()
             if extra:
                 raise SystemExit(f"baseline thừa {account} {task}")
-    print(f"baseline A0002119 new_typed {len(prior)} {quality}")
 
 
 def main() -> None:
