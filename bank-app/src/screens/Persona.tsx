@@ -9,6 +9,13 @@ import { personas, type Persona } from "../personas"
 import { useBank } from "../store"
 import { colors, Screen, useType } from "../ui/parts"
 
+const CHOICE_ORDER = ["chu_dn_nho", "sinh_vien", "co_so_tiet_kiem", "cao_tuoi_co_giam_ho", "nhan_vien_van_phong"]
+
+function choiceRank(role: string) {
+  const index = CHOICE_ORDER.indexOf(role)
+  return index === -1 ? CHOICE_ORDER.length : index
+}
+
 export function PersonaScreen() {
   const router = useRouter()
   const choose = useBank((state) => state.choosePersona)
@@ -42,7 +49,7 @@ export function PersonaScreen() {
       </View>
       <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.choose}</Text>
       {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-      {personas.map((person) => {
+      {[...personas].sort((left, right) => choiceRank(left.role) - choiceRank(right.role)).map((person) => {
         const label = copy.personas[person.role as keyof typeof copy.personas]
         return (
           <Pressable
