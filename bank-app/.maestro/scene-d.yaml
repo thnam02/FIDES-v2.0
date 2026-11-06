@@ -1,17 +1,36 @@
-# Scene D — Hoàng Văn Tâm. device.state active_capture, giả lập demo có gắn nhãn. Mức 2.
+# Cảnh 4 — Huỳnh Thị Mận, tất toán sổ, phiên có hướng dẫn, 120.000.000. Mức 2 tăng cường A+B, tổng đài xác nhận lừa đảo.
 appId: com.hainamtran.saobank
 ---
 - launchApp:
     clearKeychain: true
-- tapOn: ".*Hoàng Văn Tâm.*"
+- tapOn: ".*Huỳnh Thị Mận.*"
+- repeat:
+    times: 7
+    commands:
+      - tapOn: "BVC BANK"
+- tapOn:
+    id: "call-stranger"
+- tapOn: "Tiết kiệm"
+- assertVisible: ".*150.000.000 đ.*"
+- tapOn: "Tất toán trước hạn"
+- assertVisible: ".*150.000.000 đ.*"
+- tapOn: "Tất toán trước hạn"
+- assertVisible: ".*150.000.000.*"
+- tapOn: "Về trang chủ"
 - tapOn: "Chuyển tiền"
 - tapOn:
     id: "new-account-open"
 - tapOn:
     id: "new-account"
-- inputText: "ZCAP400000000001"
+- inputText: "ZLANB40000000001"
 - tapOn:
     id: "new-account-go"
+- tapOn:
+    id: "amount"
+- eraseText: 12
+- inputText: "120000000"
+- tapOn:
+    id: "amount-dismiss"
 - scrollUntilVisible:
     element:
       id: "purpose-open"
@@ -19,7 +38,7 @@ appId: com.hainamtran.saobank
     centerElement: true
 - tapOn:
     id: "purpose-open"
-- tapOn: "Khác"
+- tapOn: "Mua hàng, dịch vụ"
 - scrollUntilVisible:
     element:
       id: "continue-transfer"
@@ -29,7 +48,7 @@ appId: com.hainamtran.saobank
 - tapOn:
     id: "demo-drawer"
 - tapOn:
-    id: "dev-active-capture"
+    id: "dev-guided"
 - scrollUntilVisible:
     element:
       id: "confirm-transfer"
@@ -37,6 +56,14 @@ appId: com.hainamtran.saobank
 - tapOn:
     id: "confirm-transfer"
 - assertVisible: "Tạm dừng để xác minh"
+- assertVisible: ".*nhiều dấu hiệu lừa đảo cùng lúc.*"
 - tapOn:
     id: "reasons-toggle"
-- assertVisible: ".*ghi hoặc chiếu.*"
+- assertVisible: ".*theo từng cụm.*"
+- assertVisible: ".*cuộc gọi.*"
+- assertVisible: "Có thể tiếp tục sau.*"
+- tapOn:
+    id: "demo-drawer"
+- tapOn:
+    id: "demo-hotline-fraud"
+- assertVisible: "Tổng đài đã xác nhận đây là lừa đảo.*"

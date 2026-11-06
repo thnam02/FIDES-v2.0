@@ -1,8 +1,8 @@
 # Demo cuối: năm cảnh
 
-Một lần `scripts/demo_reset.sh` trước cảnh 1. Không reset giữa các cảnh. Thứ tự cố định: Hoàng, Lê, Huỳnh (hai cảnh liền), Trương.
+Một lần `scripts/demo_reset.sh` trước cảnh 1. Không reset giữa các cảnh. Thứ tự cố định: Hoàng, Lê, Vũ, Huỳnh, Trương.
 
-Cảnh 3 mở episode 24 giờ cho Huỳnh. Cảnh 4 đi trên cùng episode đó. Cảnh 4 là mức 2 tăng cường vì chính lệnh đó khớp hai nhóm, A và C. Nó không dựa vào việc cảnh 3 chạy trước.
+Cảnh 3 và cảnh 4 dùng hai khách khác nhau. Episode 24 giờ và tổng thói quen của cảnh 3 không sang cảnh 4. Cảnh 4 là mức 2 tăng cường vì chính lệnh đó khớp hai nhóm, A và B.
 
 Cuộc gọi là cuộc gọi thật, từ một máy khác. App nghe trạng thái cuộc gọi. “Demo: kết thúc cuộc gọi” chỉ tắt cuộc gọi giả lập.
 
@@ -28,7 +28,7 @@ sh scripts/demo_up.sh
 caffeinate -d
 ```
 
-- Máy gọi đã sẵn, có số của điện thoại demo. Gọi thật ở cảnh 2, cảnh 3 (lệnh 120 triệu sau tất toán), cảnh 4 và cảnh 5. Từ cảnh 3 sang cảnh 4 không cúp máy.
+- Máy gọi đã sẵn, có số của điện thoại demo. Gọi thật ở cảnh 2, cảnh 3 (lệnh 120 triệu sau tất toán), cảnh 4 và cảnh 5. Cúp máy sau cảnh 3. Gọi lại trước cảnh 4.
 - Engine cổng 8091 và bank cổng 8092 đều trả 200:
 
 ```sh
@@ -36,7 +36,7 @@ curl -sf -o /dev/null -w "engine %{http_code}\n" http://127.0.0.1:8091/health
 curl -sf -o /dev/null -w "bank %{http_code}\n" http://127.0.0.1:8092/health
 ```
 
-- Điện thoại và Mac cùng Wi‑Fi. App gọi bank-core tại `EXPO_PUBLIC_BANK_URL` trong `bank-app/.env` (hiện `http://192.168.50.146:8092`). Điện thoại không gọi engine. Engine nghe `127.0.0.1:8091`, bank nghe cổng 8092 và tự gọi engine. Đổi IP thì sửa `.env` rồi mở lại Metro.
+- Mạng giữa iPhone và Mac, một trong hai cách. Cách 1: iPhone và Mac cùng một Wi‑Fi (mạng không chặn máy với máy). Cách 2: bật Điểm truy cập cá nhân trên iPhone, bật “Tối đa hoá tương thích”, rồi nối Mac vào. Sau mỗi lần đổi mạng, từ thư mục SEDIF chạy `sh scripts/phone_connect.sh`. Script lấy địa chỉ Mac, khởi động lại Metro và mở lại app trên iPhone. Không cần build lại. `bank-app/.env` để `EXPO_PUBLIC_BANK_URL=http://127.0.0.1:8092`: app tự dùng địa chỉ Metro. Kiểm tra trên iPhone bằng Safari: `http://<địa chỉ Mac>:8092/health` phải hiện `{"status":"ok"...}`. Không tải được thì Wi‑Fi đang chặn, chuyển sang cách 2.
 - QR cửa hàng in sẵn để giơ lên: Công ty TNHH Thành Công, `0901 119 434`. Nút QR trong app điền đúng cửa hàng đó. App không đọc camera.
 - Không AirPlay, không ghi màn hình, không chiếu màn hình. iOS gộp cả ba vào `UIScreen.isCaptured`. Khi đó mọi lệnh thành mức 2 với `R_CAPTURE`, và năm cảnh dưới đây sai hết.
 - Sau `demo_up.sh`, từ thư mục SEDIF, đúng một lần:
@@ -73,43 +73,45 @@ Tờ mức 1 hiện ngay trên màn xác nhận. Câu lớn: “Bạn đang nghe
 
 Nói: “Có cuộc gọi và người nhận mới. Đây chỉ là lời nhắc. Khách vẫn tự quyết.”
 
-## 3. Huỳnh Thị Mận, mức 2 nhóm A
+## 3. Vũ Thị Lan, mức 2 nhóm A
 
-Đổi sang Huỳnh Thị Mận. Nguồn hiện `1903 072 556`, số dư khoảng 29,1 triệu. Có một sổ tiết kiệm 150 triệu, chưa đụng.
+Đổi sang Vũ Thị Lan. Nguồn hiện `1903 900 001`, số dư khoảng 29,1 triệu. Có một sổ tiết kiệm 150 triệu, chưa đụng. Không bật “Demo: phiên có hướng dẫn”.
 
-Nhịp đầu, chưa cần gọi. Chuyển tiền, gõ `0902101002` (Phạm Thu Ngân). Số tiền `120000000`. Mục đích “Mua hàng, dịch vụ”. Xác nhận. Ngân hàng từ chối trước khi chấm: “không đủ số dư”.
+Nhịp đầu, chưa cần gọi. Chuyển tiền, gõ `0902102002` (Mai Phương Thảo). Số tiền `120000000`. Mục đích “Mua hàng, dịch vụ”. Xác nhận. Ngân hàng từ chối trước khi chấm: “không đủ số dư”.
 
 Về trang chủ. Trên thẻ số dư bấm “Tiền gửi” (hoặc ô “Tiết kiệm”). Bấm “Tất toán trước hạn”, rồi bấm “Tất toán trước hạn” lần nữa ở màn sổ. Màn hình: “Đã chuyển 150.000.000 đ về tài khoản thanh toán”, nút “Về trang chủ”. Số dư thành khoảng 179,1 triệu.
 
-Gọi thật và giữ máy. Gửi lại: gõ `0902101002`, `120000000`, mục đích “Mua hàng, dịch vụ”. Xác nhận.
+Gọi thật và giữ máy. Gửi lại: gõ `0902102002`, `120000000`, mục đích “Mua hàng, dịch vụ”. Xác nhận.
 
-Màn hình mức 2, một nhóm, chưa tăng cường. Câu lớn: “Bạn vừa rút tiền tiết kiệm hoặc nhận tiền và đang chuyển cho người lạ trong lúc nghe điện thoại. Đây là cách kẻ giả danh công an thường lừa tiền.” Câu lớn đã nói cuộc gọi, tiền tiết kiệm và người lạ, nên hai dòng lý do là: “Bạn đang chuyển gần hết số dư.” và “Số tiền lớn gấp nhiều lần mức bạn thường chuyển.” “Xem chi tiết” mở ba dòng câu lớn đã nói: cuộc gọi đang diễn ra, sổ tiết kiệm vừa tất toán, chưa từng chuyển tới người nhận này. Dòng khoá: “Hãy cúp máy trước. Công an, ngân hàng và cơ quan nhà nước không bao giờ yêu cầu chuyển tiền qua điện thoại.”
+Màn hình mức 2, một nhóm, chưa tăng cường. Câu lớn: “Bạn vừa rút tiền tiết kiệm hoặc nhận tiền và đang chuyển cho người lạ trong lúc nghe điện thoại. Đây là cách kẻ giả danh công an thường lừa tiền.” Câu lớn đã nói cuộc gọi, tiền tiết kiệm và người lạ. Dòng lý do mở sẵn còn một: “Bạn đang chuyển gần hết số dư.” (không có dòng số tiền lớn vì khách này không có lịch sử chuyển lớn). “Xem chi tiết” mở ba dòng câu lớn đã nói: cuộc gọi đang diễn ra, sổ tiết kiệm vừa tất toán, chưa từng chuyển tới người nhận này. Dòng khoá: “Hãy cúp máy trước. Công an, ngân hàng và cơ quan nhà nước không bao giờ yêu cầu chuyển tiền qua điện thoại.”
 
-Nút, từ trên xuống: “Gọi tổng đài ngân hàng”, “Tạm dừng để xác minh”, “Gửi yêu cầu cho người giám hộ”, “Huỷ”, “Tiếp tục”. “Tiếp tục” bị khoá vì máy còn gọi. Người giám hộ của bà Mận được `demo_reset.sh` lưu sẵn, đã đồng ý từ trước. Nút giám hộ chỉ gửi yêu cầu, không nhả tiền; chỉ người giám hộ xác nhận trên máy của họ mới nhả. Không bấm nút này trong cảnh 3.
+Nút, từ trên xuống: “Gọi tổng đài ngân hàng”, “Tạm dừng để xác minh”, “Huỷ”, “Tiếp tục”. Không có nút giám hộ. “Tiếp tục” bị khoá vì máy còn gọi.
 
-Bấm “Tạm dừng để xác minh”. Màn hình: “Lệnh đang được giữ lại để bạn tự kiểm tra.” và số tổng đài `1900 54 54 13`. 120 triệu vẫn bị giữ. Bấm “Về trang chủ”. Không cúp máy.
+Cúp máy thật. Quay lại app. Dòng khoá mất. “Tiếp tục” mở. Bấm “Tiếp tục”. Màn hình: “Chuyển tiền thành công”, 120.000.000 đ.
 
-Sau khi tạm dừng, lệnh nằm trong Tra cứu giao dịch, lọc “Đang giữ”. Bấm dòng đó để mở lại cùng màn mức 2 (câu lớn, lý do, dòng cúp máy, đếm ngược nếu có). Từ đó khách gọi tổng đài, gửi giám hộ, huỷ (hoàn tiền), hoặc tiếp tục khi đã cúp máy — và, nếu tăng cường, sau khoá 30 phút hoặc tổng đài mở khoá. Máy chủ vẫn chặn Tiếp tục qua `block_proceed`. Lệnh mức 3 không bấm được: “Ngân hàng đang xem xét”.
+Nói: “Vừa tất toán sổ, rồi chuyển cho người lạ trong lúc nghe máy. Đó là một nhóm dấu hiệu. Phải cúp máy mới được tiếp tục. Khách cúp máy rồi bấm tiếp tục, lệnh đi.”
 
-Nói: “Vừa tất toán sổ, rồi chuyển cho người lạ trong lúc nghe máy. Đó là một nhóm dấu hiệu. Phải cúp máy mới được tiếp tục. Khách chọn tạm dừng, tiền vẫn nằm ở ngân hàng.”
+## 4. Huỳnh Thị Mận, mức 2 tăng cường A và B
 
-## 4. Huỳnh Thị Mận, mức 2 tăng cường
+Đổi sang Huỳnh Thị Mận. Nguồn hiện `1903 072 556`, số dư khoảng 29,1 triệu. Có một sổ tiết kiệm 150 triệu, chưa đụng. Gọi thật và giữ máy. Mở menu demo, bật “Demo: phiên có hướng dẫn” (chữ đổi màu khi bật). Công tắc này thay nhịp gõ bằng mẫu được đọc từng cụm.
 
-Cùng khách, cùng cuộc gọi, chưa cúp. Không reset.
+Nhịp đầu, máy đang gọi. Chuyển tiền, gõ `0902101002` (Phạm Thu Ngân). Số tiền `120000000`. Mục đích “Mua hàng, dịch vụ”. Xác nhận. Ngân hàng từ chối trước khi chấm: “không đủ số dư”.
 
-Chuyển tiền, gõ `0902102002` (Mai Phương Thảo). Số tiền `40000000`. Mục đích “Cơ quan nhà nước / công an yêu cầu chuyển”. Xác nhận.
+Về trang chủ. Trên thẻ số dư bấm “Tiền gửi” (hoặc ô “Tiết kiệm”). Bấm “Tất toán trước hạn”, rồi bấm “Tất toán trước hạn” lần nữa ở màn sổ. Màn hình: “Đã chuyển 150.000.000 đ về tài khoản thanh toán”, nút “Về trang chủ”. Số dư thành khoảng 179,1 triệu. Máy vẫn gọi. Công tắc hướng dẫn vẫn bật.
 
-Màn hình mức 2, tăng cường. Lệnh khớp nhóm A (cuộc gọi, sổ tiết kiệm) và nhóm C (mục đích). Nhóm C đứng trước nên câu lớn là: “Cơ quan nhà nước không bao giờ yêu cầu chuyển tiền để xác minh.” Ngay dưới là dòng tăng cường: “Có nhiều dấu hiệu lừa đảo cùng lúc, nên giao dịch được giữ thêm 30 phút.”
+Gửi lại: gõ `0902101002`, `120000000`, mục đích “Mua hàng, dịch vụ”. Xác nhận.
 
-Câu lớn đã nói mục đích, nên hai dòng lý do là: “Có cuộc gọi đang diễn ra trong phiên này.” và “Sổ tiết kiệm vừa được tất toán.” “Xem chi tiết” mở thêm bốn dòng: chuyển gần hết số dư, số tiền lớn gấp nhiều lần thường lệ, chưa từng chuyển tới người nhận này, và dòng mục đích.
+Màn hình mức 2, tăng cường. Lệnh khớp nhóm A (cuộc gọi, sổ tiết kiệm, người nhận mới) và nhóm B (cuộc gọi, người nhận mới, thao tác được đọc). Nhóm B đứng trước nên câu lớn là: “Cách bạn thao tác giống như đang được người khác đọc cho từng bước.” Ngay dưới là dòng tăng cường: “Có nhiều dấu hiệu lừa đảo cùng lúc, nên giao dịch được giữ thêm 30 phút.”
 
-Hai dòng khoá: dòng cúp máy, và “Giao dịch có nhiều dấu hiệu lừa đảo. Gọi tổng đài để xác nhận ngay, hoặc nhờ người giám hộ xác nhận.” Nút giống cảnh 3, có cả “Gửi yêu cầu cho người giám hộ”. “Tiếp tục” đổi thành đếm ngược “Có thể tiếp tục sau …” (khoá 30 phút) và không bấm được.
+Câu lớn chỉ nói chung về cách thao tác, nên không dòng nào bị coi là nói lại. Hai dòng lý do: “Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho.” và “Có cuộc gọi đang diễn ra trong phiên này.” “Xem chi tiết” mở thêm các dòng: sổ tiết kiệm vừa tất toán, chuyển gần hết số dư, số tiền lớn gấp nhiều lần thường lệ, chưa từng chuyển tới người nhận này.
+
+Hai dòng khoá: dòng cúp máy, và “Giao dịch có nhiều dấu hiệu lừa đảo. Gọi tổng đài để xác nhận ngay, hoặc nhờ người giám hộ xác nhận.” Nút, từ trên xuống: “Gọi tổng đài ngân hàng”, “Tạm dừng để xác minh”, “Gửi yêu cầu cho người giám hộ”, “Huỷ”, “Tiếp tục”. Người giám hộ của bà Mận được `demo_reset.sh` lưu sẵn, đã đồng ý từ trước. Nút giám hộ chỉ gửi yêu cầu, không nhả tiền. Không bấm nút này trong cảnh 4. “Tiếp tục” đổi thành đếm ngược “Có thể tiếp tục sau …” (khoá 30 phút) và không bấm được.
 
 Cúp máy thật. Quay lại app. Dòng cúp máy mất. Dòng tăng cường và đếm ngược còn. “Tiếp tục” vẫn khoá. Nếu lệnh tiếp tục được gửi, máy chủ trả “Chưa hết thời gian giữ để xác minh.”
 
-Mở menu demo, bấm “Demo: tổng đài xác nhận lừa đảo”. Màn hình: “Tổng đài đã xác nhận đây là lừa đảo. Giao dịch đã được huỷ.” và “Về trang chủ”. 40 triệu về lại tài khoản (số dư từ khoảng 19,1 lên 59,1 triệu). Lệnh 120 triệu ở cảnh 3 vẫn đang giữ.
+Mở menu demo (nút khiên trên tiêu đề), bấm “Demo: tổng đài xác nhận lừa đảo”. Màn hình: “Tổng đài đã xác nhận đây là lừa đảo. Giao dịch đã được huỷ.” và “Về trang chủ”. 120 triệu về lại tài khoản.
 
-Nói: “Cùng cuộc gọi, thêm mục đích cơ quan nhà nước. Hai nhóm dấu hiệu. Cúp máy không mở được nút. Tổng đài xác nhận lừa đảo thì lệnh bị huỷ và tiền được trả lại.”
+Nói: “Mục đích mua hàng bình thường, nhưng thao tác giống bị đọc cho từng bước, cộng dòng tiền vừa tất toán. Hai nhóm dấu hiệu. Cúp máy không mở được nút. Tổng đài xác nhận lừa đảo thì lệnh bị huỷ và tiền được trả lại.”
 
 ## 5. Trương Gia Thịnh, mức 2 được đọc số
 
@@ -117,7 +119,7 @@ Nói: “Cùng cuộc gọi, thêm mục đích cơ quan nhà nước. Hai nhóm
 
 Chuyển tiền, gõ `0902402001` (Ngô Thanh Hà). Số tiền `500000`. Người nhận mới nên app hỏi mục đích: chọn “Khác”. Không chọn cơ quan nhà nước. Xác nhận.
 
-Màn hình mức 2, một nhóm (B), chưa tăng cường. Câu lớn: “Cách bạn thao tác giống như đang được người khác đọc cho từng bước.” Câu lớn chỉ nói chung về cách thao tác, nên không dòng nào bị coi là nói lại. Hai dòng lý do: “Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho.” và “Có cuộc gọi đang diễn ra trong phiên này.” “Xem chi tiết” mở thêm một dòng: chưa từng chuyển tới người nhận này. Có dòng cúp máy. Nút giống cảnh 3, “Tiếp tục” khoá cho đến khi cúp máy. Bấm “Huỷ”. Cúp máy. Tắt “Demo: phiên có hướng dẫn”.
+Màn hình mức 2, một nhóm (B), chưa tăng cường. Câu lớn: “Cách bạn thao tác giống như đang được người khác đọc cho từng bước.” Câu lớn chỉ nói chung về cách thao tác, nên không dòng nào bị coi là nói lại. Hai dòng lý do: “Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho.” và “Có cuộc gọi đang diễn ra trong phiên này.” “Xem chi tiết” mở thêm một dòng: chưa từng chuyển tới người nhận này. Có dòng cúp máy. Nút giống cảnh 3 (không có giám hộ), “Tiếp tục” khoá cho đến khi cúp máy. Bấm “Huỷ”. Cúp máy. Tắt “Demo: phiên có hướng dẫn”.
 
 Nói: “Số tài khoản được đọc từng cụm trong lúc nghe máy. Ngân hàng nhận ra cách nhập, không cần số tiền lớn.”
 

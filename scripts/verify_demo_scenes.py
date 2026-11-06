@@ -39,6 +39,13 @@ CALL = {"state": "active", "observability": "supported_observed", "transport": "
 ENDED = {"state": "ended_in_session", "observability": "supported_observed", "transport": "cellular"}
 DEVICE = {"state": "none"}
 
+SCENE3_HEADLINE = "Bạn vừa rút tiền tiết kiệm hoặc nhận tiền và đang chuyển cho người lạ trong lúc nghe điện thoại. Đây là cách kẻ giả danh công an thường lừa tiền."
+SCENE4_HEADLINE = "Cách bạn thao tác giống như đang được người khác đọc cho từng bước."
+SCENE5_HEADLINE = SCENE4_HEADLINE
+DICTATION = "Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho."
+CALL_LINE = "Có cuộc gọi đang diễn ra trong phiên này."
+NEAR_BALANCE = "Bạn đang chuyển gần hết số dư."
+
 
 def guided_features() -> dict:
     """Same numbers as the app's "Demo: phiên có hướng dẫn" switch."""
@@ -72,6 +79,14 @@ def visible(decision: dict) -> list[str]:
     return [line for line in card.get("reasons_vi") or [] if line not in said][:2]
 
 
+def hidden(decision: dict) -> list[str]:
+    card = decision.get("evidence_card") or {}
+    reasons = list(card.get("reasons_vi") or [])
+    shown = visible(decision)
+    rest = [line for line in reasons if line not in shown]
+    return rest
+
+
 FAILED: list[str] = []
 
 
@@ -94,8 +109,16 @@ def summary(status: int, payload: dict) -> dict:
         "strengthened": decision.get("strengthened"),
         "headline": decision.get("headline"),
         "visible": visible(decision),
+        "hidden": hidden(decision),
+        "actions": decision.get("actions"),
         "detail": payload.get("detail"),
+        "status": payload.get("status"),
     }
+
+
+def report(label: str, payload: dict) -> None:
+    decision = payload.get("decision") or {}
+    print(f"REPORT {label}: {json.dumps({'headline': decision.get('headline'), 'visible': visible(decision), 'xem_chi_tiet': hidden(decision), 'actions': decision.get('actions'), 'strengthened': decision.get('strengthened'), 'lock_minutes': decision.get('lock_minutes')}, ensure_ascii=False)}")
 
 
 def main() -> None:
@@ -121,55 +144,58 @@ def main() -> None:
     check("2 Lê level 1 sheet", got["level"] == 1 and out.get("status") == "awaiting_confirmation" and got["visible"] == [], got)
 
     status, out = transfer({
-        "from_account": "A0072556", "to_account": "0902101002", "amount": 120_000_000,
+        "from_account": "A9900001", "to_account": "0902102002", "amount": 120_000_000,
         "task_type": "new_typed", "add_method": "typed", "device": DEVICE, "call": NONE, "transfer_purpose": "purchase",
     })
-    check("3 Huỳnh refused before liquidation", status == 400, summary(status, out))
+    check("3 Vũ refused before liquidation", status == 400, summary(status, out))
 
-    status, out = call("POST", "/savings/liquidate", {"account_id": "A0072556", "amount": 150_000_000, "device": DEVICE})
+    status, out = call("POST", "/savings/liquidate", {"account_id": "A9900001", "amount": 150_000_000, "device": DEVICE})
     check("3 liquidate 150 million", status == 200, {"http": status})
 
     status, held = transfer({
-        "from_account": "A0072556", "to_account": "0902101002", "amount": 120_000_000,
+        "from_account": "A9900001", "to_account": "0902102002", "amount": 120_000_000,
         "task_type": "new_typed", "add_method": "typed", "device": DEVICE, "call": CALL, "transfer_purpose": "purchase",
     })
     got = summary(status, held)
+    report("3 Vũ group A", held)
     check(
-        "3 Huỳnh 120 million level 2 group A",
+        "3 Vũ 120 million level 2 group A",
         got["level"] == 2 and got["groups"] == ["A"] and not got["strengthened"]
-        and got["visible"] == ["Bạn đang chuyển gần hết số dư.", "Số tiền lớn gấp nhiều lần mức bạn thường chuyển."],
+        and got["headline"] == SCENE3_HEADLINE
+        and got["visible"] == [NEAR_BALANCE],
         got,
     )
-    check("3 guardian button offered (seeded guardian)", "guardian_confirm" in ((held.get("decision") or {}).get("actions") or []), (held.get("decision") or {}).get("actions"))
-    status, paused = call("POST", f"/decisions/dec-{held.get('transfer_id')}/choice", {"choice": "pause", "response_ms": 1000})
-    check("3 pause keeps money held", status == 200 and paused.get("funds_status") == "held", paused)
-    status, reopened = call("GET", f"/transfer/{held.get('transfer_id')}")
-    check(
-        "3 paused transfer reopens the same level-2 screen",
-        status == 200
-        and reopened.get("status") == "pending_draft"
-        and reopened.get("funds_status") == "held"
-        and (reopened.get("decision") or {}).get("headline") == got["headline"]
-        and (reopened.get("decision") or {}).get("evidence_card", {}).get("reasons_vi") == (held.get("decision") or {}).get("evidence_card", {}).get("reasons_vi"),
-        summary(status, reopened),
-    )
-    row = next((item for item in (call("GET", "/accounts/A0072556/history")[1].get("entries") or []) if item.get("tx_id") == held.get("transfer_id")), None)
-    check("3 history marks the held row as level 2", row is not None and str(row.get("level")) == "2" and row.get("status") == "pending_draft", row)
+    check("3 no guardian button", "guardian_confirm" not in (got["actions"] or []), got["actions"])
+    tid = held.get("transfer_id")
+    status, blocked = call("POST", f"/transfer/{tid}/respond", {"proceed": True, "call": CALL})
+    check("3 proceed while still on the call rejected", status == 409, blocked)
+    status, released = call("POST", f"/transfer/{tid}/respond", {"proceed": True, "call": ENDED})
+    check("3 hang-up unlocks continue", status == 200 and released.get("status") in {"done", "released"}, {"http": status, "status": released.get("status"), "funds": released.get("funds_status")})
+
+    status, out = transfer({
+        "from_account": "A0072556", "to_account": "0902101002", "amount": 120_000_000,
+        "task_type": "new_typed", "add_method": "typed", "device": DEVICE, "call": NONE, "transfer_purpose": "purchase",
+    })
+    check("4 Huỳnh refused before liquidation", status == 400, summary(status, out))
+
+    status, out = call("POST", "/savings/liquidate", {"account_id": "A0072556", "amount": 150_000_000, "device": DEVICE})
+    check("4 liquidate 150 million", status == 200, {"http": status})
 
     status, step4 = transfer({
-        "from_account": "A0072556", "to_account": "0902102002", "amount": 40_000_000,
+        "from_account": "A0072556", "to_account": "0902101002", "amount": 120_000_000,
         "task_type": "new_typed", "add_method": "typed", "device": DEVICE, "call": CALL,
-        "transfer_purpose": "authority_request",
+        "behaviour_features": guided_features(), "transfer_purpose": "purchase",
     })
     got = summary(status, step4)
+    report("4 Huỳnh A+B", step4)
     check(
-        "4 Huỳnh 40 million strengthened A + C",
-        got["level"] == 2 and got["groups"] == ["A", "C"] and got["strengthened"]
-        and got["headline"] == "Cơ quan nhà nước không bao giờ yêu cầu chuyển tiền để xác minh."
-        and got["visible"] == ["Có cuộc gọi đang diễn ra trong phiên này.", "Sổ tiết kiệm vừa được tất toán."],
+        "4 Huỳnh 120 million strengthened A + B",
+        got["level"] == 2 and got["groups"] == ["A", "B"] and got["strengthened"]
+        and got["headline"] == SCENE4_HEADLINE
+        and got["visible"] == [DICTATION, CALL_LINE],
         got,
     )
-    check("4 guardian button offered (seeded guardian)", "guardian_confirm" in ((step4.get("decision") or {}).get("actions") or []), (step4.get("decision") or {}).get("actions"))
+    check("4 guardian button offered (seeded guardian)", "guardian_confirm" in (got["actions"] or []), got["actions"])
     tid = step4.get("transfer_id")
     status, rejected = call("POST", f"/transfer/{tid}/respond", {"proceed": True, "call": ENDED})
     check("4 proceed after hang-up rejected", status == 409, rejected)
@@ -177,7 +203,7 @@ def main() -> None:
     status, fraud = call("POST", f"/transfer/{tid}/hotline-fraud")
     _, after = call("GET", "/accounts/A0072556")
     refund = int(after.get("balance", 0)) - int(before.get("balance", 0))
-    check("4 hotline fraud cancels and refunds", status == 200 and fraud.get("status") == "cancelled" and refund == 40_000_000, {"refund": refund})
+    check("4 hotline fraud cancels and refunds", status == 200 and fraud.get("status") == "cancelled" and refund == 120_000_000, {"refund": refund})
 
     status, out = transfer({
         "from_account": "A0002119", "to_account": "0902402001", "amount": 500_000,
@@ -185,10 +211,12 @@ def main() -> None:
         "behaviour_features": guided_features(), "transfer_purpose": "other",
     })
     got = summary(status, out)
+    report("5 Trương group B", out)
     check(
         "5 Trương level 2 group B dictation",
-        got["level"] == 2 and got["groups"] == ["B"]
-        and got["visible"] == ["Bạn nhập số tài khoản theo từng cụm, như đang được đọc cho.", "Có cuộc gọi đang diễn ra trong phiên này."],
+        got["level"] == 2 and got["groups"] == ["B"] and not got["strengthened"]
+        and got["headline"] == SCENE5_HEADLINE
+        and got["visible"] == [DICTATION, CALL_LINE],
         got,
     )
 

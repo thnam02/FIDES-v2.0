@@ -22,18 +22,20 @@ HUYNH = ("A0000623", "A0050272", "A0072556", "A0077690")
 HOANG = ("A0002845", "A0051289", "A0072782", "A0078375", "A0097589")
 TRUONG = ("A0002119",)
 LE = ("A0031239",)
+VU = ("A9900001", "A9900002")
+KEPT_BASELINE = {"A0002119", "A0072556", "A9900001"}
 # Ngược thứ tự A…F để mức không phụ thuộc cảnh chạy trước.
 ORDER = (
     # scene-f-refused thay người giám hộ đã gieo, nên chạy sau scene-f.
     ("scene-f.yaml", HUYNH),
     ("scene-f-refused.yaml", HUYNH),
     ("scene-e.yaml", HOANG),
-    ("scene-d.yaml", HOANG),
+    ("scene-d.yaml", HUYNH),
     ("scene-c.yaml", TRUONG),
     ("scene-b-cancel.yaml", HUYNH),
     ("scene-b-resume.yaml", HUYNH),
     ("scene-b-ended.yaml", HUYNH),
-    ("scene-b.yaml", HUYNH),
+    ("scene-b.yaml", VU),
     ("scene-a.yaml", LE),
 )
 
@@ -97,7 +99,7 @@ def isolate(accounts: tuple[str, ...]) -> None:
     for account in accounts:
         user = account_hash(account)
         redis("DEL", f"pol:v24:{user}")
-        if account == "A0002119":
+        if account in KEPT_BASELINE:
             continue
         for task in TASKS:
             redis("DEL", key_for(user, task))

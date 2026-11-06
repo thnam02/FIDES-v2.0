@@ -785,7 +785,7 @@ export function ResultScreen() {
     const paused = outcome.status === "pending_draft"
     return (
       <Screen call>
-        {paused ? <Header title={copy.level2Title} tools /> : null}
+        <Header title={paused ? copy.level2Title : copy.level2Check} tools />
         <View testID="level-2" style={{ gap: 16 }}>
           <Text testID="level-2-headline" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{outcome.headline || copy.level2Check}</Text>
           {outcome.strengthened ? <Text testID="level-2-strengthened" style={{ color: colors.warn, fontSize: type.body, fontWeight: "700" }}>{STRENGTHENED_HEADLINE_NOTE}</Text> : null}

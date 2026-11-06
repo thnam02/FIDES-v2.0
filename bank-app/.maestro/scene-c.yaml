@@ -1,4 +1,4 @@
-# Scene C — chỉ Trương Gia Thịnh có 10 phiên nền. Cuộc gọi, người nhận gõ mới. Mức 2.
+# Cảnh 5 — Trương Gia Thịnh, cuộc gọi, người nhận gõ mới, phiên có hướng dẫn. Mức 2 nhóm B. Trương, Huỳnh và Vũ đều có baseline new_typed; cảnh này chỉ bật hướng dẫn trên Trương.
 appId: com.hainamtran.saobank
 ---
 - launchApp:
@@ -25,7 +25,7 @@ appId: com.hainamtran.saobank
     centerElement: true
 - tapOn:
     id: "purpose-open"
-- tapOn: "Gia đình, bạn bè"
+- tapOn: "Khác"
 - scrollUntilVisible:
     element:
       id: "continue-transfer"
