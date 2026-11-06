@@ -776,13 +776,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExperimentSessionReceipt"
+  /transfer/{id}:
+    get:
+      tags: [Bank core]
+      operationId: getTransfer
+      summary: Đọc một lệnh để mở lại màn mức 2 hoặc mức 3
+      description: >
+        Cùng decision (câu lớn, lý do, restated_vi, strengthened, lock_until)
+        như lúc tạo lệnh. Không đổi tiền. Lệnh mức 2 quá hạn thì huỷ và hoàn
+        trước khi trả.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: transfer_id.
+      responses:
+        "200":
+          description: Lệnh
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/TransferResponse"
+                  - type: object
+                    properties:
+                      from_account: {type: string}
+                      to_account: {type: string}
+                      amount: {type: integer}
+                      payee_name: {type: string}
+                      hotline_verified: {type: boolean}
+        "404":
+          description: Không có lệnh
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /transfer/{id}/respond:
     post:
       tags: [Bank core]
       operationId: respondTransfer
       summary: Trả lời trên một lệnh chuyển
       description: >
-        Không nhận decision_id. Lệnh nằm ở path. Cùng luật với POST /respond của engine.
+        Không nhận decision_id. Lệnh nằm ở path. Gửi đúng một trong cancel, proceed (kèm call) hoặc hung_up;
+        gửi nhiều hơn một thì 400. guardian_confirm và who_guides bị từ chối 409: chỉ
+        POST /guardian/requests/{id}/confirm nhả tiền thay khách. proceed chỉ nhả lệnh mức 2 còn giữ khi luật
+        cúp máy và khoá cho phép. Lệnh mức 3 luôn 409. Ngân hàng tự quyết tiền; engine chỉ ghi sổ.
       parameters:
         - name: id
           in: path
@@ -797,15 +837,15 @@ paths:
             schema:
               $ref: "#/components/schemas/TransferRespondRequest"
             examples:
-              gia_cong_an:
-                summary: Cúp máy, bắt đầu countdown, chưa huỷ
+              tiep_tuc:
+                summary: Tiếp tục sau khi cúp máy
                 value:
-                  who_guides: authority
-                  hung_up: true
-              nguoi_nha_huong_dan:
-                summary: Người nhà hướng dẫn
+                  proceed: true
+                  call: {state: ended_in_session, observability: supported_observed, transport: cellular}
+              huy:
+                summary: Huỷ và hoàn tiền
                 value:
-                  who_guides: relative
+                  cancel: true
       responses:
         "200":
           description: Lệnh sau khi trả lời
@@ -969,6 +1009,71 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/GuardianRequestItem"
+  /transfer/{id}/guardian-request:
+    post:
+      tags: [Bank core]
+      operationId: sendGuardianRequest
+      summary: Khách gửi hoặc gửi lại yêu cầu cho người giám hộ
+      description: >
+        Chỉ lệnh mức 2 còn giữ, khi khách có người giám hộ đã đồng ý. Không bao giờ nhả tiền.
+        Gọi lại trả cùng request_id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Đã gửi.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transfer_id, request_id, status, message]
+                properties:
+                  transfer_id: {type: string}
+                  request_id: {type: string}
+                  status: {type: string, enum: [sent]}
+                  message: {type: string}
+        "409":
+          description: Lệnh mức 3, lệnh không còn giữ, hoặc chưa có người giám hộ đã đồng ý.
+  /review/transfers:
+    get:
+      tags: [Bank core]
+      operationId: listReviewTransfers
+      summary: Lệnh mức 3 đang giữ, chờ ngân hàng xem xét
+      responses:
+        "200":
+          description: Danh sách lệnh.
+  /review/transfers/{id}:
+    post:
+      tags: [Bank core]
+      operationId: reviewTransfer
+      summary: Ngân hàng quyết lệnh mức 3
+      description: >
+        Đường duy nhất cho lệnh mức 3. release trả người nhận, cancel huỷ và hoàn tiền cho khách.
+        Lệnh không phải mức 3 hoặc không còn giữ thì 409.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: {type: string, enum: [release, cancel]}
+      responses:
+        "200":
+          description: Đã quyết.
+        "409":
+          description: Không phải lệnh mức 3 đang giữ.
   /guardian/requests/{id}/confirm:
     post:
       tags: [Bank core]
@@ -1813,6 +1918,10 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/TransferStatus"
+        level:
+          type: string
+          nullable: true
+          description: Mức can thiệp của lệnh, nếu dòng là chuyển khoản.
         counterparty_id:
           type: string
           nullable: true

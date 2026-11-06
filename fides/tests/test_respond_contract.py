@@ -91,6 +91,15 @@ def test_cancel_and_guardian_confirm():
     state = _state("high", "2026-09-21T10:15:00+07:00")
     cancelled = apply_contract(state, {"cancel": True}, parse_ts("2026-09-21T10:16:00+07:00"))
     assert cancelled["funds_status"] == "cancelled"
-    released = apply_contract(state, {"guardian_confirm": True}, parse_ts("2026-09-21T10:16:00+07:00"))
+    kept = apply_contract(state, {"guardian_confirm": True}, parse_ts("2026-09-21T10:16:00+07:00"))
+    assert kept["funds_status"] == "held"
+    assert kept["level"] == "high"
+    medium = _state("medium", "2026-09-21T10:15:00+07:00", guardian=True)
+    released = apply_contract(medium, {"guardian_confirm": True}, parse_ts("2026-09-21T10:16:00+07:00"))
     assert released["funds_status"] == "released"
-    assert released["level"] == "high"
+
+
+def test_guardian_confirm_does_not_undo_a_cancel():
+    state = _state("medium", "2026-09-21T10:15:00+07:00", guardian=True, funds="cancelled")
+    out = apply_contract(state, {"guardian_confirm": True}, parse_ts("2026-09-21T10:16:00+07:00"))
+    assert out["funds_status"] == "cancelled"

@@ -58,6 +58,10 @@ def flags_from_decision(decided: dict, now: datetime) -> dict:
         "lock_until": lock_until,
         "headline": str(decided.get("headline") or ""),
         "hotline_verified": False,
+        "signals_present": list(decided.get("signals_present") or []),
+        "rules_fired": list(decided.get("rules_fired") or []),
+        "intervention": decided.get("intervention"),
+        "evidence_card": decided.get("evidence_card") or {},
     }
 
 

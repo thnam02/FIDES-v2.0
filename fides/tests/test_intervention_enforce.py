@@ -73,6 +73,24 @@ def test_missing_lock_time_is_filled_from_the_decision():
     assert block_proceed(stored, NOW, "ended_in_session", False) == LOCK_MESSAGE
 
 
+def test_flags_keep_the_evidence_card_for_a_later_screen():
+    card = {"signals": [], "reasons_vi": ["gần hết số dư"], "restated_vi": ["cuộc gọi"], "baseline_quality": "none", "episode_id": "e1"}
+    stored = flags_from_decision(
+        {
+            "headline": "câu lớn",
+            "evidence_card": card,
+            "signals_present": ["new_payee"],
+            "rules_fired": ["R_CALL_FUNDS_NEWPAYEE"],
+            "intervention": "three_button",
+        },
+        NOW,
+    )
+    assert stored["evidence_card"] == card
+    assert stored["headline"] == "câu lớn"
+    assert stored["intervention"] == "three_button"
+    assert stored["signals_present"] == ["new_payee"]
+
+
 def test_a_missed_decide_is_unscored_and_never_level_zero():
     known = unscored_decision(True)
     new = unscored_decision(False)

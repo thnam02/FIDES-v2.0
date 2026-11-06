@@ -28,8 +28,9 @@ test("the strengthened line names the thirty minute hold", () => {
 test("level 2 buttons put continue last and hide the guardian without consent", () => {
   assert.deepEqual(level2Buttons(false), ["Gọi tổng đài ngân hàng", "Tạm dừng để xác minh", "Huỷ", "Tiếp tục"])
   assert.deepEqual(level2Buttons(true).at(-1), "Tiếp tục")
-  assert.ok(level2Buttons(true).includes("Nhờ người giám hộ xác nhận"))
-  assert.equal(level2Buttons(false).includes("Nhờ người giám hộ xác nhận"), false)
+  assert.ok(level2Buttons(true).includes("Gửi yêu cầu cho người giám hộ"))
+  assert.equal(level2Buttons(false).includes("Gửi yêu cầu cho người giám hộ"), false)
+  assert.deepEqual(level2Buttons(true, true), ["Gọi tổng đài ngân hàng", "Gửi yêu cầu cho người giám hộ", "Huỷ", "Tiếp tục"])
 })
 
 test("an active call disables continue until the call ends", () => {

@@ -1,9 +1,9 @@
-# Scene B — cuộc gọi, tất toán sổ, người nhận mới, 120.000.000. Mức 2.
+# Cảnh 3 — Vũ Thị Lan, tất toán sổ, người nhận mới, 120.000.000, không hướng dẫn. Mức 2 nhóm A, cúp máy rồi tiếp tục.
 appId: com.hainamtran.saobank
 ---
 - launchApp:
     clearKeychain: true
-- tapOn: ".*Huỳnh Thị Mận.*"
+- tapOn: ".*Vũ Thị Lan.*"
 - repeat:
     times: 7
     commands:
@@ -22,7 +22,7 @@ appId: com.hainamtran.saobank
     id: "new-account-open"
 - tapOn:
     id: "new-account"
-- inputText: "ZLANB40000000001"
+- inputText: "ZLANB40000000002"
 - tapOn:
     id: "new-account-go"
 - tapOn:
@@ -54,6 +54,13 @@ appId: com.hainamtran.saobank
 - assertVisible: "Tạm dừng để xác minh"
 - tapOn:
     id: "reasons-toggle"
+- assertVisible: ".*gần hết số dư.*"
 - assertVisible: ".*cuộc gọi.*"
 - assertVisible: ".*tất toán.*"
-- assertVisible: ".*người nhận.*"
+- tapOn:
+    id: "demo-drawer"
+- tapOn:
+    id: "call-end"
+- tapOn:
+    id: "choice-continue"
+- assertVisible: "Chuyển tiền thành công"

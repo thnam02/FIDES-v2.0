@@ -861,6 +861,8 @@ export interface components {
             tx_type: components["schemas"]["TxType"];
             purpose_text?: string;
             status: components["schemas"]["TransferStatus"];
+            /** @description Mức can thiệp của lệnh, nếu dòng là chuyển khoản. */
+            level?: string | null;
             /** @description Số tài khoản phía bên kia, nếu sổ tra được. Không dùng để chấm điểm. */
             counterparty_id?: string | null;
             /** @description Tên phía bên kia. Không trả số tài khoản. Không dùng để chấm điểm. */

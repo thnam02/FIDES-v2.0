@@ -23,6 +23,7 @@
     "nhan_vien_van_phong": "segment thường, tuổi 31-50, ít nhất 3 lần salary_in, số giao dịch gần trung vị",
     "chu_dn_nho": "segment doanh nghiệp nhỏ, tuổi 30–55 trong năm 2026, không giữ tài khoản mule, số giao dịch gần trung vị",
     "sinh_vien": "segment thường, tuổi không quá 25 trong năm 2026, nhiều giao dịch nhất",
+    "co_so_tiet_kiem": "khách demo cảnh 3, không lấy từ parquet: thanh toán khoảng 29 triệu, sổ 150 triệu, không giám hộ",
     "mule": "ba tài khoản khác ring, active_to còn tới 22/9/2026, nhiều giao dịch đi nhất từ 22/9 đến trước 29/9/2026"
   },
   "personas": [
@@ -101,6 +102,23 @@
       "tx_count": 327,
       "role": "sinh_vien",
       "salary_in_count": 3
+    },
+    {
+      "customer_id": "C990001",
+      "full_name": "Vũ Thị Lan",
+      "gender": "nữ",
+      "birth_year": 1988,
+      "age_group": "31-50",
+      "segment": "thường",
+      "city": "Đà Nẵng",
+      "has_guardian": false,
+      "account_ids": [
+        "A9900001",
+        "A9900002"
+      ],
+      "tx_count": 0,
+      "role": "co_so_tiet_kiem",
+      "salary_in_count": 0
     }
   ],
   "mules": [

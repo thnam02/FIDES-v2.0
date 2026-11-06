@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react"
-import { Alert, AppState, InputAccessoryView, Linking, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native"
+import { Alert, AppState, InputAccessoryView, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
 import { useNavigation, useRouter } from "expo-router"
-import { AlertTriangle, Camera, Check, ChevronDown, ClipboardPaste, Contact, CreditCard, Image as ImageIcon, QrCode, Receipt, Search, ShieldCheck, TrendingUp, Wallet, X } from "lucide-react-native"
+import { AlertTriangle, Camera, Check, ChevronDown, ClipboardPaste, Clock, Contact, CreditCard, Image as ImageIcon, PhoneOff, QrCode, Receipt, Search, ShieldCheck, TrendingUp, Wallet, X } from "lucide-react-native"
 import { FidesCallNotice, FidesSession, sessionRecorder, useAccountInput } from "fides-sdk"
 
-import { BANK_URL } from "../api/client"
-import { useAccount, useBeneficiaries, useCancelLevel1, useChoice, useConfirmLevel1, usePurposePolicy, useRespond, useTransfer } from "../api/queries"
+import { BANK_URL, bankFetch } from "../api/client"
+import { useAccount, useBeneficiaries, useCancelLevel1, useChoice, useConfirmLevel1, usePurposePolicy, useRespond, useSendGuardianRequest, useTransfer } from "../api/queries"
 import { forgetTransferKey } from "../api/idempotency"
 import { GUIDED_FEATURES } from "../dev/guided"
 import { rememberSession } from "../dev/lastSession"
@@ -18,7 +18,7 @@ import { addMethod } from "../addMethod"
 import { deviceState } from "../deviceState"
 import { level1AppStateCancels, level1ConfirmRejected, level1OnLeave } from "../level1Leave"
 import { payeeGate } from "../payeeLookup"
-import { CANCEL_BUTTON, continueView, FAKE_RELATIVE_NOTE, HOTLINE_BUTTON, LESS_REASONS, level1Headline, MORE_REASONS, PAUSE_BUTTON, showFakeRelative, splitReasons, STRENGTHENED_HEADLINE_NOTE } from "../intervention"
+import { CANCEL_BUTTON, continueView, FAKE_RELATIVE_NOTE, GUARDIAN_BUTTON, GUARDIAN_SENT, HANGUP_NOTE, HOTLINE_BUTTON, LESS_REASONS, level1Headline, MORE_REASONS, PAUSE_BUTTON, showFakeRelative, splitReasons, STRENGTHENED_HEADLINE_NOTE } from "../intervention"
 import { resultRoute } from "../routeDecision"
 import { DEMO, useBank, type EntryDetail } from "../store"
 import { Button, Card, colors, Header, Screen, useType } from "../ui/parts"
@@ -196,7 +196,7 @@ function AmountNotice() {
   useEffect(() => {
     if (!inCall || !accountId || asked.current) return
     asked.current = true
-    fetch(`${BANK_URL}/accounts/${accountId}/call-notice`, {
+    bankFetch(`${BANK_URL}/accounts/${accountId}/call-notice`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ demo: DEMO }),
@@ -387,27 +387,74 @@ function EntryDetailLine() {
   return <Text testID="entry-detail" style={{ color: colors.navy, fontSize: type.body }}>{copy.entryWay}: {copy.entryDetail[detail]}</Text>
 }
 
-function ReasonLines({ lines, restated, icon, lineTestID, center }: { lines: string[]; restated?: string[]; icon?: boolean; lineTestID?: string; center?: boolean }) {
+const HOLD_BOX = { bg: "#FFF7ED", border: "#FDE68A", iconBg: "#FEF3C7", icon: "#B45309", divider: "#F3E8C8" }
+const REMINDER_BOX = { bg: colors.mint, border: "#B8EFEA", iconBg: "#D7F6F2", icon: colors.deep, divider: "#C7EFEA" }
+const INSTRUCT_BOX = { bg: "#EFF6FF", border: "#BFDBFE", iconBg: "#DBEAFE", icon: "#1D4ED8" }
+const PILL = { bg: "#FEF3C7", text: "#92400E" }
+const REASONS_HEADING = "Vì sao giao dịch bị giữ"
+
+function ReasonLines({ lines, restated, icon, variant, lineTestID, center }: { lines: string[]; restated?: string[]; icon?: boolean; variant?: "hold" | "reminder"; lineTestID?: string; center?: boolean }) {
   const type = useType()
   const [open, setOpen] = useState(false)
   const { shown, hidden } = splitReasons(lines, restated)
   const visible = open ? [...shown, ...hidden] : shown
+  const tone = variant ?? (icon ? "hold" : undefined)
+  if (!tone) {
+    return (
+      <>
+        {visible.map((line) => (
+          <Text key={line} testID={lineTestID} style={{ color: colors.navy, fontSize: type.body, textAlign: center ? "center" : undefined }}>{line}</Text>
+        ))}
+        {hidden.length ? (
+          <Pressable testID="reasons-toggle" accessibilityRole="button" onPress={() => setOpen(!open)} style={{ minHeight: 44, justifyContent: "center", alignSelf: center ? "center" : "flex-start" }}>
+            <Text style={{ color: colors.deep, fontWeight: "700", fontSize: type.body }}>{open ? LESS_REASONS : MORE_REASONS}</Text>
+          </Pressable>
+        ) : null}
+      </>
+    )
+  }
+  if (!visible.length && !hidden.length) return null
+  const box = tone === "hold" ? HOLD_BOX : REMINDER_BOX
   return (
-    <>
-      {visible.map((line) => icon ? (
-        <View key={line} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
-          <AlertTriangle size={14} color={colors.warn} />
-          <Text testID={lineTestID} style={{ flex: 1, color: colors.navy, fontSize: type.body }}>{line}</Text>
+    <View style={{ backgroundColor: box.bg, borderColor: box.border, borderWidth: 1, borderRadius: 16, padding: 12, gap: 8 }}>
+      {visible.map((line, index) => (
+        <View key={line} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start", paddingBottom: index < visible.length - 1 ? 8 : 0, borderBottomWidth: index < visible.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: box.divider }}>
+          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: box.iconBg, alignItems: "center", justifyContent: "center" }}>
+            <AlertTriangle size={14} color={box.icon} />
+          </View>
+          <Text testID={lineTestID} style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.35 }}>
+            {tone === "hold" && index === 0 ? <Text style={{ fontWeight: "700", fontSize: type.small }}>{REASONS_HEADING}{"  "}</Text> : null}
+            {line}
+          </Text>
         </View>
-      ) : (
-        <Text key={line} testID={lineTestID} style={{ color: colors.navy, fontSize: type.body, textAlign: center ? "center" : undefined }}>{line}</Text>
       ))}
       {hidden.length ? (
-        <Pressable testID="reasons-toggle" accessibilityRole="button" onPress={() => setOpen(!open)} style={{ minHeight: 44, justifyContent: "center", alignSelf: center ? "center" : "flex-start" }}>
+        <Pressable testID="reasons-toggle" accessibilityRole="button" onPress={() => setOpen(!open)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text style={{ color: colors.deep, fontWeight: "700", fontSize: type.body }}>{open ? LESS_REASONS : MORE_REASONS}</Text>
+          <ChevronDown size={18} color={colors.deep} style={{ transform: [{ rotate: open ? "180deg" : "0deg" }] }} />
         </Pressable>
       ) : null}
-    </>
+    </View>
+  )
+}
+
+function GateNotes({ notes }: { notes: string[] }) {
+  const type = useType()
+  if (!notes.length) return null
+  return (
+    <View style={{ backgroundColor: INSTRUCT_BOX.bg, borderColor: INSTRUCT_BOX.border, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
+      {notes.map((line, index) => {
+        const Icon = line === HANGUP_NOTE ? PhoneOff : Clock
+        return (
+          <View key={line} style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: INSTRUCT_BOX.iconBg, alignItems: "center", justifyContent: "center" }}>
+              <Icon size={14} color={INSTRUCT_BOX.icon} />
+            </View>
+            <Text testID={index === 0 ? "level-2-note" : undefined} style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.3 }}>{line}</Text>
+          </View>
+        )
+      })}
+    </View>
   )
 }
 
@@ -496,7 +543,7 @@ export function ConfirmScreen() {
       {reminder ? (
         <View style={{ gap: 12 }}>
           <Text testID="level-1-headline" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{reminder.headline}</Text>
-          <ReasonLines lines={reminder.reasons} restated={reminder.restated} lineTestID="level-1-line" />
+          <ReasonLines lines={reminder.reasons} restated={reminder.restated} variant="reminder" lineTestID="level-1-line" />
           {reminder.fakeRelative ? (
             <Text testID="fake-relative" style={{ color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.4 }}>
               <Text style={{ fontWeight: "700" }}>{reminder.payeeName}</Text>
@@ -684,18 +731,20 @@ export function ResultScreen() {
   const outcome = useBank((state) => state.outcome)
   const choice = useChoice()
   const respond = useRespond()
+  const sendGuardian = useSendGuardianRequest()
   const policy = usePurposePolicy()
   const shownAt = useRef(Date.now())
   const type = useType()
   const callActive = useCallActive()
   const [phase, setPhase] = useState<"choose" | "paused" | "done" | "cancelled">("choose")
   const [notice, setNotice] = useState<string | null>(null)
+  const [guardianNote, setGuardianNote] = useState<{ text: string; error: boolean } | null>(null)
   const [bankNow, setBankNow] = useState<number | null>(null)
   useEffect(() => {
     let stop = false
     async function tick() {
       try {
-        const response = await fetch(`${BANK_URL}/clock`)
+        const response = await bankFetch(`${BANK_URL}/clock`)
         if (!response.ok) return
         const body = (await response.json()) as { ts?: string }
         if (!stop && body.ts) setBankNow(Date.parse(body.ts))
@@ -780,59 +829,83 @@ export function ResultScreen() {
     const showGuardian = (outcome.actions ?? []).includes("guardian_confirm")
     const tel = policy.data?.hotline_tel || "1900545413"
     const hotline = policy.data?.hotline || copy.hotline
+    const paused = outcome.status === "pending_draft"
+    const footer = (
+      <View style={{ gap: 8 }}>
+        {phase === "choose" ? (
+          <>
+            <Button testID="choice-hotline" outline label={HOTLINE_BUTTON} onPress={() => void Linking.openURL(`tel:${tel}`)} />
+            {paused ? null : <Button testID="choice-pause" label={PAUSE_BUTTON} onPress={() => pick("pause")} />}
+            {showGuardian ? (
+              <Button testID="choice-guardian" outline label={GUARDIAN_BUTTON} onPress={() => {
+                if (sendGuardian.isPending) return
+                sendGuardian.mutate(outcome.transferId, {
+                  onSuccess: () => setGuardianNote({ text: GUARDIAN_SENT, error: false }),
+                  onError: (error) => setGuardianNote({ text: error.message, error: true }),
+                })
+              }} />
+            ) : null}
+            {showGuardian && guardianNote ? (
+              <Text testID={guardianNote.error ? "guardian-refused" : "guardian-sent"} style={{ color: guardianNote.error ? colors.danger : colors.navy, fontSize: type.body }}>{guardianNote.text}</Text>
+            ) : null}
+            <Button testID="choice-cancel" outline label={CANCEL_BUTTON} onPress={() => {
+              respond.mutate(
+                { id: outcome.transferId, body: { cancel: true } },
+                { onSuccess: () => setPhase("cancelled"), onError: (error) => setNotice(error.message) },
+              )
+            }} />
+            <Button testID="choice-continue" quiet disabled={!gate.enabled} label={gate.label} onPress={() => {
+              if (!gate.enabled) return
+              respond.mutate(
+                { id: outcome.transferId, body: { proceed: true, call: FidesSession.callBlock() } },
+                { onSuccess: () => setPhase("done"), onError: (error) => setNotice(error.message) },
+              )
+            }} />
+          </>
+        ) : null}
+        {phase === "paused" ? (
+          <View style={{ backgroundColor: colors.mint, borderRadius: 16, padding: 12, gap: 8 }}>
+            <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
+              <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "#D7F6F2", alignItems: "center", justifyContent: "center" }}>
+                <ShieldCheck size={14} color={colors.deep} />
+              </View>
+              <Text style={{ flex: 1, color: colors.navy, fontSize: type.body, lineHeight: type.body * 1.35 }}>{copy.pausedDraft}</Text>
+            </View>
+            <Pressable testID="bank-hotline" accessibilityRole="link" accessibilityLabel={hotline} onPress={() => void Linking.openURL(`tel:${tel}`)} style={{ minHeight: 44, justifyContent: "center" }}>
+              <Text selectable style={{ color: colors.deep, fontSize: type.title, fontWeight: "700" }}>{hotline}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {phase === "cancelled" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.cancelledTransfer}</Text> : null}
+        {phase === "done" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.success}</Text> : null}
+        {phase !== "choose" ? <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} /> : null}
+        {notice ? <Text style={{ color: colors.danger }}>{notice}</Text> : null}
+        {choice.isError ? <Text style={{ color: colors.danger }}>{choice.error.message}</Text> : null}
+      </View>
+    )
     return (
-      <Screen call>
-        <View testID="level-2" style={{ gap: 16 }}>
+      <Screen call footer={footer}>
+        <Header title={paused ? copy.level2Title : copy.level2Check} tools />
+        <View testID="level-2" style={{ gap: 12 }}>
           <Text testID="level-2-headline" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{outcome.headline || copy.level2Check}</Text>
-          {outcome.strengthened ? <Text testID="level-2-strengthened" style={{ color: colors.warn, fontSize: type.body, fontWeight: "700" }}>{STRENGTHENED_HEADLINE_NOTE}</Text> : null}
-          <Card>
-            <Text style={{ color: colors.navy, fontWeight: "700" }}>{who}</Text>
-            <Text style={{ color: "#64748B", fontSize: type.small }}>{copy.bankName} · {showAccount(outcome.payee)}</Text>
-            <Text style={{ color: colors.deep, fontSize: type.title, fontWeight: "700" }}>{vnd(outcome.amount)}</Text>
-          </Card>
+          {outcome.strengthened ? (
+            <View testID="level-2-strengthened" style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: PILL.bg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 }}>
+              <Clock size={14} color={PILL.text} />
+              <Text style={{ flexShrink: 1, color: PILL.text, fontSize: type.small, fontWeight: "700", lineHeight: type.small * 1.3 }}>{STRENGTHENED_HEADLINE_NOTE}</Text>
+            </View>
+          ) : null}
+          <View style={{ backgroundColor: colors.mint, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Text numberOfLines={1} style={{ color: colors.navy, fontSize: type.body }}>
+              <Text style={{ fontWeight: "700" }}>{who}</Text>
+              {" · "}
+              <Text style={{ color: "#64748B" }}>{showAccount(outcome.payee)}</Text>
+              {" · "}
+              <Text style={{ color: colors.deep, fontWeight: "700" }}>{vnd(outcome.amount)}</Text>
+            </Text>
+          </View>
           <ReasonLines lines={outcome.reasonsVi} restated={outcome.restatedVi} icon lineTestID="level-2-line" />
-          {gate.notes.map((line) => (
-            <Text key={line} testID={line === gate.notes[0] ? "level-2-note" : undefined} style={{ color: colors.navy, fontSize: type.body }}>{line}</Text>
-          ))}
+          <GateNotes notes={gate.notes} />
           <EntryDetailLine />
-          {phase === "choose" ? (
-            <>
-              <Button testID="choice-hotline" outline label={HOTLINE_BUTTON} onPress={() => void Linking.openURL(`tel:${tel}`)} />
-              <Button testID="choice-pause" label={PAUSE_BUTTON} onPress={() => pick("pause")} />
-              {showGuardian ? (
-                <Button testID="choice-guardian" outline label="Nhờ người giám hộ xác nhận" onPress={() => {
-                  respond.mutate(
-                    { id: outcome.transferId, body: { guardian_confirm: true } },
-                    { onSuccess: () => setPhase("done"), onError: (error) => setNotice(error.message) },
-                  )
-                }} />
-              ) : null}
-              <Button testID="choice-cancel" outline label={CANCEL_BUTTON} onPress={() => {
-                respond.mutate(
-                  { id: outcome.transferId, body: { cancel: true } },
-                  { onSuccess: () => setPhase("cancelled"), onError: (error) => setNotice(error.message) },
-                )
-              }} />
-              <Button testID="choice-continue" quiet disabled={!gate.enabled} label={gate.label} onPress={() => {
-                if (!gate.enabled) return
-                respond.mutate(
-                  { id: outcome.transferId, body: { proceed: true, call: FidesSession.callBlock() } },
-                  { onSuccess: () => setPhase("done"), onError: (error) => setNotice(error.message) },
-                )
-              }} />
-            </>
-          ) : null}
-          {phase === "paused" ? (
-            <>
-              <Text style={{ color: colors.navy, fontSize: type.body }}>{copy.pausedDraft}</Text>
-              <Text testID="bank-hotline" selectable style={{ color: colors.deep, fontSize: type.title, fontWeight: "700" }}>{hotline}</Text>
-            </>
-          ) : null}
-          {phase === "cancelled" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.cancelledTransfer}</Text> : null}
-          {phase === "done" ? <Text style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{copy.success}</Text> : null}
-          {phase !== "choose" ? <Button label={copy.homeButton} onPress={() => router.replace("/(main)/(tabs)")} /> : null}
-          {notice ? <Text style={{ color: colors.danger }}>{notice}</Text> : null}
-          {choice.isError ? <Text style={{ color: colors.danger }}>{choice.error.message}</Text> : null}
         </View>
       </Screen>
     )

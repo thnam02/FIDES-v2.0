@@ -3,8 +3,9 @@ import { Pressable, Text, TextInput, View } from "react-native"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { FidesGuardianRequest } from "fides-sdk"
 
-import { useAccount, useChoice, useConfirmGuardian, useGuardianRequests, useHistory, useRegisterGuardian } from "../api/queries"
+import { fetchTransfer, useAccount, useChoice, useConfirmGuardian, useGuardianRequests, useHistory, useRegisterGuardian } from "../api/queries"
 import { copy } from "../copy/vi"
+import { outcomeFromTransfer, transferLevel } from "../heldTransfer"
 import { displayHolder, payeeName } from "../names"
 import { fullDate, isHeld, movementTitle, presentHistory, statement, vnd } from "../format"
 import { LedgerRow } from "../ui/LedgerRow"
@@ -116,11 +117,15 @@ export function StatsScreen() {
 }
 
 export function HistoryScreen() {
+  const router = useRouter()
   const accountId = useBank((state) => state.accountId)
+  const setOutcome = useBank((state) => state.setOutcome)
   const account = useAccount(accountId)
   const history = useHistory(accountId)
   const [filter, setFilter] = useState<"all" | "in" | "out" | "held">("all")
   const [query, setQuery] = useState("")
+  const [opening, setOpening] = useState<string | null>(null)
+  const [heldError, setHeldError] = useState<string | null>(null)
   const type = useType()
   const needle = query.trim().toLowerCase()
   const rows = statement(presentHistory(history.data?.entries ?? []), account.data?.balance ?? 0).filter((item) => {
@@ -132,6 +137,23 @@ export function HistoryScreen() {
     return `${item.purpose_text ?? ""} ${label} ${item.amount}`.toLowerCase().includes(needle)
   })
   let day = ""
+  async function openHeld(txId: string) {
+    if (opening) return
+    setHeldError(null)
+    setOpening(txId)
+    try {
+      const payload = await fetchTransfer(txId)
+      const level = payload.decision.level
+      if (level != null && level >= 3) return
+      if (payload.funds_status !== "held") return
+      setOutcome(outcomeFromTransfer(payload))
+      router.push("/(main)/transfer/result")
+    } catch (error) {
+      setHeldError(error instanceof Error ? error.message : "transfer")
+    } finally {
+      setOpening(null)
+    }
+  }
   return (
     <Screen>
       <Header title={copy.lookup} />
@@ -145,20 +167,31 @@ export function HistoryScreen() {
       />
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         {([["all", copy.all], ["in", copy.incoming], ["out", copy.outgoing], ["held", copy.held]] as const).map(([key, label]) => (
-          <Pressable key={key} onPress={() => setFilter(key)} style={{ borderRadius: 12, backgroundColor: filter === key ? colors.deep : colors.mint, paddingHorizontal: 10, paddingVertical: 8 }}>
+          <Pressable key={key} testID={`history-filter-${key}`} accessibilityRole="button" onPress={() => setFilter(key)} style={{ borderRadius: 12, backgroundColor: filter === key ? colors.deep : colors.mint, paddingHorizontal: 10, paddingVertical: 8 }}>
             <Text style={{ color: filter === key ? colors.white : colors.deep, fontSize: type.small }}>{label}</Text>
           </Pressable>
         ))}
       </View>
       <Text style={{ color: colors.navy, fontWeight: "700" }}>{copy.txCount.replace("{n}", String(rows.length))}</Text>
       {rows.length === 0 ? <Text style={{ color: "#64748B" }}>{copy.emptyTx}</Text> : null}
+      {heldError ? <Text style={{ color: colors.danger }}>{heldError}</Text> : null}
       {rows.map((item) => {
         const showDay = fullDate(item.ts) !== day
         day = fullDate(item.ts)
+        const level = transferLevel(item.level)
+        const heldOut = item.direction === "out" && isHeld(item.status)
+        const level3 = heldOut && level != null && level >= 3
+        const openable = heldOut && !level3 && (level === 2 || level == null)
         return (
           <View key={`${item.tx_id}-${item.direction}`} style={{ gap: 8 }}>
             {showDay ? <Text style={{ color: colors.deep, fontWeight: "700" }}>{day}</Text> : null}
-            <LedgerRow item={item} showBalance />
+            <LedgerRow
+              item={item}
+              showBalance
+              testID={openable ? "history-held" : level3 ? "history-level-3" : undefined}
+              note={level3 ? copy.level3Held : undefined}
+              onPress={openable ? () => void openHeld(item.tx_id) : undefined}
+            />
           </View>
         )
       })}
@@ -292,6 +325,7 @@ export function GuardianRequestScreen() {
         }}
       />
       {released ? <Text style={{ color: "#2E7D32", fontSize: 22, fontWeight: "700", textAlign: "center" }}>{copy.released}</Text> : null}
+      {confirm.isError ? <Text testID="guardian-refused" style={{ color: colors.danger, fontSize: largeText ? 20 : 16, textAlign: "center" }}>{confirm.error.message}</Text> : null}
     </Screen>
   )
 }

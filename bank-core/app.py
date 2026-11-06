@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hmac
 import os
 import threading
 import urllib.error
@@ -14,13 +15,16 @@ from typing import Annotated, Literal
 
 import pandas as pd
 import psycopg
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from clock import ICT, DemoClock
 from enforce import (
     FRAUD_CONFIRMED,
     GUARDIAN_DECLINED,
+    HANGUP_MESSAGE,
+    LOCK_MESSAGE,
     block_proceed,
     flags_from_decision,
     rejection_choice,
@@ -437,9 +441,14 @@ def sync_entry(conn, transfer_id: str, account: str, funds: str, status: str) ->
 
 
 def apply_funds(conn, transfer: dict, previous: str, funds: str, now: datetime) -> None:
-    if funds == "released" and previous != "released":
+    """Tiền chỉ rời trạng thái giữ. Đã huỷ thì không trả người nhận, đã trả thì không hoàn lại."""
+    if funds == previous:
+        return
+    if previous != "held":
+        raise HTTPException(409, "Lệnh không còn bị giữ.")
+    if funds == "released":
         release_payee(conn, transfer, now)
-    if funds == "cancelled" and previous != "cancelled":
+    if funds == "cancelled":
         credit(conn, transfer["from_account"], int(transfer["amount"]))
         entry(conn, transfer["from_account"], transfer["id"] + ":refund", now, "in", int(transfer["amount"]), "transfer", "hoàn", "cancelled")
 
@@ -555,6 +564,17 @@ class PersonaIn(BaseModel):
 
 
 app = FastAPI(title="Bank core")
+
+
+@app.middleware("http")
+async def require_bank_key(request: Request, call_next):
+    """BANK_API_KEY đặt thì mọi lệnh ghi cần X-Bank-Key. Không đặt thì như cũ, để tắt nhanh trên sân khấu."""
+    key = os.environ.get("BANK_API_KEY", "")
+    if key and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        sent = request.headers.get("x-bank-key", "")
+        if not hmac.compare_digest(sent.encode("utf-8"), key.encode("utf-8")):
+            return JSONResponse(status_code=401, content={"detail": "Thiếu hoặc sai X-Bank-Key."})
+    return await call_next(request)
 
 
 def _persona_accounts(customer_id: str) -> set[str]:
@@ -756,13 +776,13 @@ def backfill_counterparties(conn) -> None:
 
 
 def ensure_scene_capacity(conn) -> None:
-    """Cảnh B chuyển 120 triệu. Sổ parquet để hạn mức 100 triệu."""
+    """Cảnh 3 (Vũ) và cảnh 4 (Huỳnh) chuyển 120 triệu. Sổ parquet để hạn mức 100 triệu."""
     conn.execute(
         """
         UPDATE bank.accounts
         SET limit_per_txn = GREATEST(limit_per_txn, 500000000),
             limit_per_day = GREATEST(limit_per_day, 5000000000)
-        WHERE id = 'A0072556'
+        WHERE id IN ('A0072556', 'A9900001')
         """
     )
 
@@ -872,6 +892,7 @@ def demo_reset(body: ResetIn) -> dict:
     SKIP = set()
     FEED_CURSOR = 0
     with connect() as conn:
+        _note_expired(_expire_holds(conn, CLOCK.now()))
         load(conn)
         ensure_scene_capacity(conn)
         seed_demo_payees(conn)
@@ -935,8 +956,15 @@ def lookup_account(conn, token: str):
 
 @app.get("/accounts/{account_id}")
 def get_account(account_id: str) -> dict:
+    expired: list[str] = []
     with connect() as conn:
         row = lookup_account(conn, account_id)
+        if row is not None:
+            expired = _expire_holds(conn, CLOCK.now(), row["id"])
+            if expired:
+                conn.commit()
+                row = lookup_account(conn, account_id)
+    _note_expired(expired)
     if row is None:
         raise HTTPException(404, "không có tài khoản")
     return {
@@ -955,14 +983,20 @@ def get_account(account_id: str) -> dict:
 
 @app.get("/accounts/{account_id}/history")
 def history(account_id: str, before: str | None = None) -> dict:
-    cutoff = datetime.fromisoformat(before) if before else CLOCK.now()
     with connect() as conn:
         found = conn.execute("SELECT 1 FROM bank.accounts WHERE id = %s", (account_id,)).fetchone()
         if found is None:
             raise HTTPException(404, "không có tài khoản")
+        expired = _expire_holds(conn, CLOCK.now(), account_id)
+        if expired:
+            conn.commit()
+            _note_expired(expired)
+        # Sau khi hết hạn, để dòng hoàn tiền vừa ghi nằm trong mốc.
+        cutoff = datetime.fromisoformat(before) if before else CLOCK.now()
         rows = conn.execute(
             """
             SELECT e.tx_id, e.ts, e.direction, e.amount, e.tx_type, e.purpose_text, e.status,
+                   t.level AS transfer_level,
                    COALESCE(NULLIF(e.counterparty_id, ''), x.other_id, pair.other_id) AS counterparty_id,
                    COALESCE(NULLIF(cp.holder_name, ''), NULLIF(ben.holder_name, '')) AS counterparty_name
             FROM bank.entries e
@@ -1000,6 +1034,7 @@ def history(account_id: str, before: str | None = None) -> dict:
                 "tx_type": row["tx_type"],
                 "purpose_text": row["purpose_text"],
                 "status": row["status"],
+                "level": row["transfer_level"],
                 "counterparty_id": row["counterparty_id"],
                 "counterparty_name": row["counterparty_name"],
             }
@@ -1177,6 +1212,10 @@ def transfer(
             return stored
     session = touch_session(body.from_account, body.device, now)
     with connect() as conn:
+        expired = _expire_holds(conn, now, body.from_account)
+        if expired:
+            conn.commit()
+            _note_expired(expired)
         account = load_account(conn, body.from_account)
         spent = spent_today(conn, body.from_account, now)
         reject_if_cannot_pay(account, body.amount, spent)
@@ -1263,6 +1302,8 @@ def transfer(
             status = "done" if experiment is not None or level is None else status_of(level, funds, False)
         _ensure_intervention(conn)
         stored_flags = flags_from_decision(decided, now)
+        if level == 2 and experiment is None:
+            decided["hold_until"] = (now + timedelta(hours=level2_hold_hours())).isoformat()
         conn.execute(
             """
             INSERT INTO bank.transfers
@@ -1296,15 +1337,10 @@ def transfer(
                 release_payee(conn, stored, now)
         if experiment is not None:
             _save_experiment_decision(conn, body, decided, now)
-        if level == 2 and experiment is None and _guardian_consented(conn, body.from_account):
-            conn.execute(
-                """
-                INSERT INTO bank.guardian_requests (id, account_id, transfer_id, level, funds_status, status)
-                VALUES (%s,%s,%s,%s,%s,'open')
-                """,
-                (f"G-{transfer_id}", body.from_account, transfer_id, str(level), funds),
-            )
-            log.info("guardian notify mock account=%s transfer=%s", body.from_account, transfer_id)
+        guardian_offered = "guardian_confirm" in (decided.get("actions") or [])
+        if level == 2 and experiment is None and guardian_offered and _guardian_consented(conn, body.from_account):
+            stored = conn.execute("SELECT * FROM bank.transfers WHERE id = %s", (transfer_id,)).fetchone()
+            _open_guardian_request(conn, stored)
         conn.commit()
     decision = _decision_payload(level, decided)
     if waiting:
@@ -1403,6 +1439,118 @@ def _load_flags(transfer) -> dict:
     if isinstance(raw, str):
         return json.loads(raw)
     return dict(raw)
+
+
+LEVEL2_HELD = frozenset({"needs_verification", "pending_draft"})
+LEVEL3_DETAIL = "Giao dịch này do ngân hàng xem xét. Khách và người giám hộ không mở được."
+NOT_HELD_DETAIL = "Lệnh không còn bị giữ."
+GUARDIAN_ONLY_DETAIL = "Chỉ người giám hộ xác nhận được. Hãy gửi yêu cầu cho người giám hộ."
+
+
+def _release_block(transfer: dict, now: datetime, call_state: str | None, *, guardian: bool = False) -> str | None:
+    """None khi được nhả. Chỉ lệnh mức 2 còn giữ. Người giám hộ bỏ qua luật cúp máy và khoá, khách thì không."""
+    if (_level_number(transfer["level"]) or 0) >= 3:
+        return LEVEL3_DETAIL
+    if transfer["funds_status"] != "held" or transfer["status"] not in LEVEL2_HELD:
+        return NOT_HELD_DETAIL
+    if guardian:
+        return None
+    flags = _load_flags(transfer)
+    return block_proceed(flags, now, call_state, bool(flags.get("hotline_verified")))
+
+
+def _close_guardian_requests(conn, transfer_id: str, status: str, funds: str) -> None:
+    conn.execute(
+        "UPDATE bank.guardian_requests SET status = %s, funds_status = %s WHERE transfer_id = %s AND status = 'open'",
+        (status, funds, transfer_id),
+    )
+
+
+def _open_guardian_request(conn, transfer: dict) -> str:
+    request_id = f"G-{transfer['id']}"
+    conn.execute(
+        """
+        INSERT INTO bank.guardian_requests (id, account_id, transfer_id, level, funds_status, status)
+        VALUES (%s,%s,%s,%s,%s,'open')
+        ON CONFLICT (id) DO UPDATE SET status = 'open', funds_status = EXCLUDED.funds_status
+        WHERE bank.guardian_requests.status <> 'confirmed'
+        """,
+        (request_id, transfer["from_account"], transfer["id"], str(transfer["level"]), transfer["funds_status"]),
+    )
+    log.info("guardian notify mock account=%s transfer=%s", transfer["from_account"], transfer["id"])
+    return request_id
+
+
+def _settle(conn, transfer: dict, funds: str, status: str, now: datetime) -> None:
+    """Một chỗ đổi tiền và trạng thái của lệnh đang giữ. Rời trạng thái giữ thì đóng yêu cầu giám hộ."""
+    apply_funds(conn, transfer, transfer["funds_status"], funds, now)
+    conn.execute("UPDATE bank.transfers SET funds_status = %s, status = %s WHERE id = %s", (funds, status, transfer["id"]))
+    sync_entry(conn, transfer["id"], transfer["from_account"], funds, status)
+    if funds != "held":
+        _close_guardian_requests(conn, transfer["id"], "confirmed" if funds == "released" else "closed", funds)
+
+
+def level2_hold_hours() -> float:
+    try:
+        hours = float(os.environ.get("LEVEL2_HOLD_HOURS", "24"))
+    except ValueError:
+        return 24.0
+    return hours if hours > 0 else 24.0
+
+
+def expired_hold_detail() -> str:
+    hours = level2_hold_hours()
+    shown = int(hours) if float(hours).is_integer() else hours
+    return f"Lệnh đã chờ quá {shown} giờ mà chưa ai xác minh, nên đã được huỷ và hoàn tiền."
+
+
+def _expire_hold(conn, transfer: dict | None, now: datetime) -> bool:
+    """Mức 2 còn giữ quá LEVEL2_HOLD_HOURS: huỷ và hoàn tiền. Không có tiến trình quét; gọi mỗi lần đọc hay ghi lệnh."""
+    if transfer is None or (_level_number(transfer["level"]) or 0) != 2:
+        return False
+    if transfer["funds_status"] != "held" or transfer["status"] not in LEVEL2_HELD:
+        return False
+    created = transfer["created_at"]
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=now.tzinfo or ICT)
+    if now - created < timedelta(hours=level2_hold_hours()):
+        return False
+    _settle(conn, transfer, "cancelled", "cancelled", now)
+    return True
+
+
+def _expire_holds(conn, now: datetime, account_id: str | None = None) -> list[str]:
+    """Hết hạn mọi lệnh mức 2 quá hạn, của một tài khoản hoặc tất cả. Trả decision_id để ghi engine sau commit."""
+    cutoff = now - timedelta(hours=level2_hold_hours())
+    rows = conn.execute(
+        """
+        SELECT * FROM bank.transfers
+        WHERE level = '2' AND funds_status = 'held' AND status IN ('needs_verification', 'pending_draft')
+          AND created_at <= %s AND (%s::text IS NULL OR from_account = %s::text)
+        FOR UPDATE
+        """,
+        (cutoff, account_id, account_id),
+    ).fetchall()
+    expired = []
+    for row in rows:
+        if _expire_hold(conn, row, now):
+            expired.append(row["decision_id"])
+    return expired
+
+
+def _note_expired(decision_ids: list[str]) -> None:
+    for decision_id in decision_ids:
+        log_choice(decision_id, "expired", 0)
+
+
+def _engine_note(path: str, body: dict) -> None:
+    """Engine chỉ ghi sổ phản hồi. Tiền do ngân hàng quyết."""
+    try:
+        engine_post(path, body)
+    except EngineUnavailable as exc:
+        log.warning("engine note failed: %s", exc)
+    except HTTPException as exc:
+        log.warning("engine note failed: %s", exc.detail)
 
 
 def log_choice(decision_id: str | None, choice: str, response_ms: int) -> None:
@@ -1535,6 +1683,71 @@ def cancel_level1(transfer_id: str, body: Level1Action | None = None) -> dict:
     return {"transfer_id": transfer_id, "status": "expired", "funds_status": "cancelled"}
 
 
+def _json_field(value, default):
+    if value is None:
+        return default
+    if isinstance(value, (bytes, str)):
+        return json.loads(value)
+    return value
+
+
+def _iso_stamp(value) -> str | None:
+    if value is None or value == "":
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _decision_from_transfer(transfer: dict) -> dict:
+    flags = _load_flags(transfer)
+    level = _level_number(transfer["level"])
+    reasons = _json_field(transfer["reasons"], [])
+    actions = _json_field(transfer["actions"], [])
+    card = dict(flags.get("evidence_card") or {})
+    if not card.get("reasons_vi"):
+        card = {
+            "signals": card.get("signals") or [],
+            "reasons_vi": [item.get("text") if isinstance(item, dict) else str(item) for item in reasons],
+            "restated_vi": list(card.get("restated_vi") or []),
+            "baseline_quality": card.get("baseline_quality") or "none",
+            "episode_id": card.get("episode_id") or "",
+        }
+    decided = {
+        "level": level,
+        "unscored": transfer["level"] == "unscored",
+        "actions": actions,
+        "reasons": reasons,
+        "signals_present": flags.get("signals_present") or [],
+        "rules_fired": flags.get("rules_fired") or [],
+        "evidence_card": card,
+        "intervention": flags.get("intervention"),
+        "groups_fired": flags.get("groups_fired") or [],
+        "strengthened": bool(flags.get("strengthened")),
+        "continue_requires_hangup": bool(flags.get("continue_requires_hangup")),
+        "lock_minutes": int(flags.get("lock_minutes") or 0),
+        "lock_until": flags.get("lock_until"),
+        "headline": flags.get("headline") or "",
+    }
+    return _decision_payload(level, decided)
+
+
+def _transfer_view(transfer: dict, payee_name: str | None) -> dict:
+    flags = _load_flags(transfer)
+    return {
+        "transfer_id": transfer["id"],
+        "from_account": transfer["from_account"],
+        "to_account": transfer["to_account"],
+        "amount": int(transfer["amount"]),
+        "payee_name": payee_name or "",
+        "status": transfer["status"],
+        "funds_status": transfer["funds_status"],
+        "hold_until": _iso_stamp(transfer["hold_until"]),
+        "hotline_verified": bool(flags.get("hotline_verified")),
+        "decision": _decision_from_transfer(transfer),
+    }
+
+
 def _decision_payload(level: int | None, decided: dict) -> dict:
     unscored = bool(decided.get("unscored"))
     shown = None if unscored and level is None else level if level in {0, 1, 2, 3} else 0
@@ -1659,6 +1872,10 @@ def verify_hotline(transfer_id: str) -> dict:
         transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s FOR UPDATE", (transfer_id,)).fetchone()
         if transfer is None:
             raise HTTPException(404, "không có lệnh")
+        if _expire_hold(conn, transfer, CLOCK.now()):
+            conn.commit()
+            _note_expired([transfer["decision_id"]])
+            raise HTTPException(409, expired_hold_detail())
         flags = _load_flags(transfer)
         flags["hotline_verified"] = True
         conn.execute(
@@ -1670,31 +1887,34 @@ def verify_hotline(transfer_id: str) -> dict:
     return {"transfer_id": transfer_id, "decision_id": transfer["decision_id"], "unlocked": True}
 
 
-def _story_cancel(transfer_id: str, choice: str, message: str) -> dict:
+def _story_cancel(transfer_id: str, choice: str, message: str, *, guardian: bool = False) -> dict:
     """Huỷ và hoàn tiền. Không đụng pol:v24, nên episode đang mở vẫn mở."""
     now = CLOCK.now()
     with connect() as conn:
+        _ensure_intervention(conn)
         transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s FOR UPDATE", (transfer_id,)).fetchone()
         if transfer is None:
             raise HTTPException(404, "không có lệnh")
-        if transfer["status"] != "cancelled":
-            previous = transfer["funds_status"]
-            debited = transfer["status"] not in {"awaiting_confirmation", "expired", "pending_draft"}
-            if debited and previous != "cancelled":
-                apply_funds(conn, transfer, previous, "cancelled", now)
-                sync_entry(conn, transfer_id, transfer["from_account"], "cancelled", "cancelled")
+        if _expire_hold(conn, transfer, CLOCK.now()):
+            conn.commit()
+            _note_expired([transfer["decision_id"]])
+            raise HTTPException(409, expired_hold_detail())
+        if transfer["status"] in {"awaiting_confirmation", "expired"}:
+            # Mức 1 chưa trừ tiền.
             conn.execute(
                 "UPDATE bank.transfers SET funds_status = 'cancelled', status = 'cancelled' WHERE id = %s",
                 (transfer_id,),
             )
+            _close_guardian_requests(conn, transfer_id, "closed", "cancelled")
+        elif transfer["status"] != "cancelled":
+            if guardian and (_level_number(transfer["level"]) or 0) >= 3:
+                raise HTTPException(409, LEVEL3_DETAIL)
+            _settle(conn, transfer, "cancelled", "cancelled", now)
         conn.commit()
         decision_id = transfer["decision_id"]
     log_choice(decision_id, choice, 0)
     if decision_id:
-        try:
-            engine_post("/respond", {"decision_id": decision_id, "cancel": True, "ts": now.isoformat()})
-        except EngineUnavailable:
-            log.warning("engine_unavailable")
+        _engine_note("/respond", {"decision_id": decision_id, "cancel": True, "ts": now.isoformat()})
     return {"transfer_id": transfer_id, "status": "cancelled", "funds_status": "cancelled", "message": message}
 
 
@@ -1707,61 +1927,110 @@ def confirm_fraud(transfer_id: str) -> dict:
 @app.post("/transfer/{transfer_id}/guardian-decline")
 def decline_guardian(transfer_id: str) -> dict:
     """Demo: người giám hộ từ chối."""
-    return _story_cancel(transfer_id, "guardian_decline", GUARDIAN_DECLINED)
+    return _story_cancel(transfer_id, "guardian_decline", GUARDIAN_DECLINED, guardian=True)
 
 
-@app.post("/transfer/{transfer_id}/respond")
-def respond(transfer_id: str, body: RespondIn) -> dict:
+GUARDIAN_SENT = "Đã gửi yêu cầu cho người giám hộ."
+
+
+@app.post("/transfer/{transfer_id}/guardian-request")
+def send_guardian_request(transfer_id: str) -> dict:
+    """Nút của khách: gửi hoặc gửi lại yêu cầu cho người giám hộ. Không bao giờ nhả tiền."""
+    with connect() as conn:
+        transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s FOR UPDATE", (transfer_id,)).fetchone()
+        if transfer is None:
+            raise HTTPException(404, "không có lệnh")
+        if _expire_hold(conn, transfer, CLOCK.now()):
+            conn.commit()
+            _note_expired([transfer["decision_id"]])
+            raise HTTPException(409, expired_hold_detail())
+        if (_level_number(transfer["level"]) or 0) >= 3:
+            raise HTTPException(409, LEVEL3_DETAIL)
+        if transfer["funds_status"] != "held" or transfer["status"] not in LEVEL2_HELD:
+            raise HTTPException(409, NOT_HELD_DETAIL)
+        refusal = _guardian_refusal(conn, transfer["from_account"], CLOCK.now())
+        if refusal:
+            raise HTTPException(409, refusal)
+        request_id = _open_guardian_request(conn, transfer)
+        conn.commit()
+    log_choice(transfer["decision_id"], "guardian_request", 0)
+    return {"transfer_id": transfer_id, "request_id": request_id, "status": "sent", "message": GUARDIAN_SENT}
+
+
+@app.get("/transfer/{transfer_id}")
+def get_transfer(transfer_id: str) -> dict:
+    """Màn mức 2/3 sau khi tạm dừng: cùng câu lớn, lý do, khoá. Không nhả tiền."""
     now = CLOCK.now()
     with connect() as conn:
         _ensure_intervention(conn)
         transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s", (transfer_id,)).fetchone()
         if transfer is None:
             raise HTTPException(404, "không có lệnh")
-        flags = _load_flags(transfer)
-        if body.cancel:
-            log_choice(transfer["decision_id"], "cancel", 0)
-        elif body.guardian_confirm:
-            if not _guardian_consented(conn, transfer["from_account"]):
-                raise HTTPException(409, "Chưa lưu sự đồng ý của người giám hộ.")
-            log_choice(transfer["decision_id"], "guardian_confirm", 0)
-        elif body.proceed:
+        if _expire_hold(conn, transfer, now):
+            conn.commit()
+            _note_expired([transfer["decision_id"]])
+            transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s", (transfer_id,)).fetchone()
+        if transfer is None:
+            raise HTTPException(404, "không có lệnh")
+        payee = conn.execute("SELECT holder_name FROM bank.accounts WHERE id = %s", (transfer["to_account"],)).fetchone()
+    return _transfer_view(transfer, None if payee is None else payee["holder_name"])
+
+
+@app.post("/transfer/{transfer_id}/respond")
+def respond(transfer_id: str, body: RespondIn) -> dict:
+    """Khách chỉ được huỷ, báo đã cúp máy, hoặc tiếp tục khi luật cho phép. Mỗi lần đúng một việc."""
+    now = CLOCK.now()
+    if body.guardian_confirm:
+        raise HTTPException(409, GUARDIAN_ONLY_DETAIL)
+    if body.who_guides is not None:
+        raise HTTPException(409, "Câu hỏi ai đang hướng dẫn không còn được dùng.")
+    chosen = [name for name in ("cancel", "proceed", "hung_up") if getattr(body, name)]
+    if len(chosen) != 1:
+        raise HTTPException(400, "Gửi đúng một trong cancel, proceed hoặc hung_up.")
+    action = chosen[0]
+    rejected = None
+    with connect() as conn:
+        _ensure_intervention(conn)
+        transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s FOR UPDATE", (transfer_id,)).fetchone()
+        if transfer is None:
+            raise HTTPException(404, "không có lệnh")
+        if _expire_hold(conn, transfer, CLOCK.now()):
+            conn.commit()
+            _note_expired([transfer["decision_id"]])
+            raise HTTPException(409, expired_hold_detail())
+        decision_id = transfer["decision_id"]
+        if (_level_number(transfer["level"]) or 0) >= 3:
+            raise HTTPException(409, LEVEL3_DETAIL)
+        if action == "proceed":
             call_state = body.call.state if body.call is not None else None
-            reason = block_proceed(flags, now, call_state, bool(flags.get("hotline_verified")))
-            if reason:
-                log_choice(transfer["decision_id"], rejection_choice(reason), 0)
-                raise HTTPException(409, reason)
-            log_choice(transfer["decision_id"], "proceed", 0)
-        payload = {key: value for key, value in body.model_dump().items() if value is not None and key != "call"}
-        payload["decision_id"] = transfer["decision_id"]
-        payload["ts"] = now.isoformat()
-        answered = engine_post("/respond", payload)
-        if body.proceed:
-            answered["funds_status"] = "released"
-        previous = transfer["funds_status"]
-        funds = answered["funds_status"]
-        level = numeric_level(answered["level"])
-        hung = bool(transfer["hung_up"] or body.hung_up)
-        status = status_of(level, funds, hung)
-        apply_funds(conn, transfer, previous, funds, now)
-        conn.execute(
-            """
-            UPDATE bank.transfers
-            SET level=%s, funds_status=%s, status=%s, hold_until=%s, countdown_until=%s, gate=%s, hung_up=%s
-            WHERE id=%s
-            """,
-            (str(level), funds, status, answered.get("hold_until"), answered.get("countdown_until"), answered.get("gate"), hung, transfer_id),
-        )
-        sync_entry(conn, transfer_id, transfer["from_account"], funds, status)
+            rejected = _release_block(transfer, now, call_state)
+            if rejected is None:
+                _settle(conn, transfer, "released", "released", now)
+        elif action == "cancel":
+            if transfer["funds_status"] != "held" or transfer["status"] not in LEVEL2_HELD:
+                raise HTTPException(409, NOT_HELD_DETAIL)
+            _settle(conn, transfer, "cancelled", "cancelled", now)
+        else:
+            conn.execute("UPDATE bank.transfers SET hung_up = true WHERE id = %s", (transfer_id,))
         conn.commit()
+        updated = conn.execute("SELECT * FROM bank.transfers WHERE id = %s", (transfer_id,)).fetchone()
+    if rejected is not None:
+        log_choice(decision_id, rejection_choice(rejected) if rejected in {HANGUP_MESSAGE, LOCK_MESSAGE} else "proceed_rejected_state", 0)
+        raise HTTPException(409, rejected)
+    if action == "cancel":
+        log_choice(decision_id, "cancel", 0)
+        if decision_id:
+            _engine_note("/respond", {"decision_id": decision_id, "cancel": True, "ts": now.isoformat()})
+    elif action == "proceed":
+        log_choice(decision_id, "proceed", 0)
     return {
         "transfer_id": transfer_id,
-        "status": status,
-        "level": level,
-        "funds_status": funds,
-        "gate": answered.get("gate"),
-        "hold_until": answered.get("hold_until"),
-        "countdown_until": answered.get("countdown_until"),
+        "status": updated["status"],
+        "level": _level_number(updated["level"]),
+        "funds_status": updated["funds_status"],
+        "gate": updated["gate"],
+        "hold_until": updated["hold_until"].isoformat() if updated["hold_until"] else None,
+        "countdown_until": updated["countdown_until"].isoformat() if updated["countdown_until"] else None,
     }
 
 
@@ -1938,6 +2207,38 @@ def _guardian_consented(conn, account_id: str) -> bool:
     return bool(row and row["consent"])
 
 
+NO_GUARDIAN_DETAIL = "Chưa lưu sự đồng ý của người giám hộ."
+
+
+def guardian_cooling_hours() -> float:
+    try:
+        hours = float(os.environ.get("GUARDIAN_COOLING_HOURS", "24"))
+    except ValueError:
+        return 24.0
+    return max(hours, 0.0)
+
+
+def cooling_detail(hours: float) -> str:
+    shown = int(hours) if float(hours).is_integer() else hours
+    return f"Người giám hộ mới được thêm hoặc vừa đổi, chưa thể xác nhận trong {shown} giờ đầu."
+
+
+def _guardian_refusal(conn, account_id: str, now: datetime) -> str | None:
+    """None khi người giám hộ được xác nhận. Người mới thêm hoặc vừa đổi phải chờ GUARDIAN_COOLING_HOURS."""
+    _ensure_guardian_consent(conn)
+    row = conn.execute("SELECT consent, registered_at FROM bank.guardians WHERE account_id = %s", (account_id,)).fetchone()
+    if not row or not row["consent"]:
+        return NO_GUARDIAN_DETAIL
+    hours = guardian_cooling_hours()
+    registered = row["registered_at"]
+    if hours > 0 and registered is not None:
+        if registered.tzinfo is None:
+            registered = registered.replace(tzinfo=now.tzinfo or ICT)
+        if now - registered < timedelta(hours=hours):
+            return cooling_detail(hours)
+    return None
+
+
 @app.get("/config")
 def bank_config() -> dict:
     from engine.policy.v24 import load_policy
@@ -1960,6 +2261,10 @@ def record_choice(decision_id: str, body: ChoiceIn) -> dict:
         transfer = conn.execute("SELECT * FROM bank.transfers WHERE decision_id = %s FOR UPDATE", (decision_id,)).fetchone()
         if transfer is None:
             raise HTTPException(404, "không có quyết định")
+        if _expire_hold(conn, transfer, CLOCK.now()):
+            conn.commit()
+            _note_expired([transfer["decision_id"]])
+            raise HTTPException(409, expired_hold_detail())
         state = _mark_expired(conn, transfer, now)
         if state != "fresh":
             conn.commit()
@@ -1969,12 +2274,6 @@ def record_choice(decision_id: str, body: ChoiceIn) -> dict:
         raise HTTPException(409, EXPIRED_DETAIL)
     if transfer["status"] == "awaiting_confirmation":
         raise HTTPException(409, "lệnh mức 1 đang chờ xác nhận")
-    if body.choice == "continue":
-        call_state = body.call.state if body.call is not None else None
-        reason = block_proceed(_load_flags(transfer), now, call_state, bool(_load_flags(transfer).get("hotline_verified")))
-        if reason:
-            log_choice(decision_id, rejection_choice(reason), body.response_ms)
-            raise HTTPException(409, reason)
     if body.choice == "abandoned":
         log_choice(decision_id, body.choice, body.response_ms)
         return {
@@ -1984,6 +2283,16 @@ def record_choice(decision_id: str, body: ChoiceIn) -> dict:
             "status": transfer["status"],
             "funds_status": transfer["funds_status"],
         }
+    if (_level_number(transfer["level"]) or 0) >= 3:
+        raise HTTPException(409, LEVEL3_DETAIL)
+    if body.choice == "continue":
+        call_state = body.call.state if body.call is not None else None
+        reason = _release_block(transfer, now, call_state)
+        if reason:
+            log_choice(decision_id, rejection_choice(reason) if reason in {HANGUP_MESSAGE, LOCK_MESSAGE} else "proceed_rejected_state", body.response_ms)
+            raise HTTPException(409, reason)
+    elif transfer["funds_status"] != "held" or transfer["status"] not in LEVEL2_HELD:
+        raise HTTPException(409, NOT_HELD_DETAIL)
     try:
         engine_post(f"/decisions/{decision_id}/choice", {"choice": body.choice, "response_ms": body.response_ms})
     except EngineUnavailable as exc:
@@ -1993,25 +2302,24 @@ def record_choice(decision_id: str, body: ChoiceIn) -> dict:
             raise
         log.warning("choice not logged: %s", exc.detail)
     with connect() as conn:
-        transfer = conn.execute("SELECT * FROM bank.transfers WHERE decision_id = %s", (decision_id,)).fetchone()
+        transfer = conn.execute("SELECT * FROM bank.transfers WHERE decision_id = %s FOR UPDATE", (decision_id,)).fetchone()
         if transfer is None:
             raise HTTPException(404, "không có quyết định")
-        funds = transfer["funds_status"]
         if body.choice == "cancel":
-            funds = "cancelled"
-            status = "cancelled"
+            funds, status = "cancelled", "cancelled"
+            _settle(conn, transfer, funds, status, now)
         elif body.choice == "continue":
-            funds = "released"
-            status = "done"
+            if _release_block(transfer, now, body.call.state if body.call is not None else None):
+                raise HTTPException(409, NOT_HELD_DETAIL)
+            funds, status = "released", "released"
+            _settle(conn, transfer, funds, status, now)
         else:
-            status = "pending_draft"
-        apply_funds(conn, transfer, transfer["funds_status"], funds, now)
-        conn.execute(
-            "UPDATE bank.transfers SET funds_status=%s, status=%s WHERE id=%s",
-            (funds, status, transfer["id"]),
-        )
-        sync_entry(conn, transfer["id"], transfer["from_account"], funds, status)
+            funds, status = transfer["funds_status"], "pending_draft"
+            conn.execute("UPDATE bank.transfers SET status = %s WHERE id = %s", (status, transfer["id"]))
+            sync_entry(conn, transfer["id"], transfer["from_account"], funds, status)
         conn.commit()
+    if body.choice == "cancel":
+        _engine_note("/respond", {"decision_id": decision_id, "cancel": True, "ts": now.isoformat()})
     return {"decision_id": decision_id, "choice": body.choice, "logged": True, "status": status, "funds_status": funds}
 
 
@@ -2028,12 +2336,22 @@ def guardian(body: GuardianIn) -> dict:
         if found is None:
             raise HTTPException(404, "không có tài khoản")
         _ensure_guardian_consent(conn)
+        # Đổi số, đổi quan hệ hoặc vừa đồng ý thì tính lại từ đầu thời gian chờ.
         conn.execute(
             """
             INSERT INTO bank.guardians (account_id, guardian_phone_hash, relation, registered_at, consent)
             VALUES (%s,%s,%s,%s,true)
             ON CONFLICT (account_id) DO UPDATE
-            SET guardian_phone_hash=EXCLUDED.guardian_phone_hash, relation=EXCLUDED.relation, consent=true
+            SET guardian_phone_hash = EXCLUDED.guardian_phone_hash,
+                relation = EXCLUDED.relation,
+                consent = true,
+                registered_at = CASE
+                    WHEN bank.guardians.consent
+                     AND bank.guardians.guardian_phone_hash IS NOT DISTINCT FROM EXCLUDED.guardian_phone_hash
+                     AND bank.guardians.relation IS NOT DISTINCT FROM EXCLUDED.relation
+                    THEN bank.guardians.registered_at
+                    ELSE EXCLUDED.registered_at
+                END
             """,
             (body.account_id, phone_hash, body.relation, now),
         )
@@ -2045,6 +2363,10 @@ def guardian(body: GuardianIn) -> dict:
 @app.get("/guardian/requests")
 def guardian_requests() -> dict:
     with connect() as conn:
+        expired = _expire_holds(conn, CLOCK.now())
+        if expired:
+            conn.commit()
+            _note_expired(expired)
         rows = conn.execute(
             """
             SELECT r.id, r.account_id, r.transfer_id, r.level, r.funds_status,
@@ -2075,24 +2397,89 @@ def guardian_requests() -> dict:
 
 @app.post("/guardian/requests/{request_id}/confirm")
 def confirm_guardian(request_id: str) -> dict:
+    """Đường duy nhất để người giám hộ nhả tiền: yêu cầu còn mở, lệnh mức 2 còn giữ."""
     now = CLOCK.now()
     with connect() as conn:
-        row = conn.execute("SELECT * FROM bank.guardian_requests WHERE id = %s", (request_id,)).fetchone()
+        _ensure_intervention(conn)
+        row = conn.execute("SELECT * FROM bank.guardian_requests WHERE id = %s FOR UPDATE", (request_id,)).fetchone()
         if row is None:
             raise HTTPException(404, "không có yêu cầu")
-        transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s", (row["transfer_id"],)).fetchone()
-        answered = engine_post("/respond", {"decision_id": transfer["decision_id"], "guardian_confirm": True, "ts": now.isoformat()})
-        apply_funds(conn, transfer, transfer["funds_status"], answered["funds_status"], now)
-        level = numeric_level(answered["level"])
-        released_status = status_of(level, answered["funds_status"], transfer["hung_up"])
-        conn.execute(
-            "UPDATE bank.transfers SET funds_status=%s, status=%s, level=%s WHERE id=%s",
-            (answered["funds_status"], released_status, str(level), transfer["id"]),
-        )
-        sync_entry(conn, transfer["id"], transfer["from_account"], answered["funds_status"], released_status)
-        conn.execute("UPDATE bank.guardian_requests SET status='confirmed', funds_status='released' WHERE id=%s", (request_id,))
+        if row["status"] != "open":
+            raise HTTPException(409, "Yêu cầu này không còn mở.")
+        transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s FOR UPDATE", (row["transfer_id"],)).fetchone()
+        if transfer is None:
+            raise HTTPException(404, "không có lệnh")
+        if _expire_hold(conn, transfer, CLOCK.now()):
+            conn.commit()
+            _note_expired([transfer["decision_id"]])
+            raise HTTPException(409, expired_hold_detail())
+        reason = _release_block(transfer, now, None, guardian=True) or _guardian_refusal(conn, transfer["from_account"], now)
+        if reason:
+            refused = reason
+        else:
+            refused = None
+            _settle(conn, transfer, "released", "released", now)
         conn.commit()
-    return {"id": request_id, "funds_status": "released"}
+    if refused:
+        log_choice(transfer["decision_id"], "guardian_refused", 0)
+        raise HTTPException(409, refused)
+    log_choice(transfer["decision_id"], "guardian_confirm", 0)
+    if transfer["decision_id"]:
+        _engine_note("/respond", {"decision_id": transfer["decision_id"], "guardian_confirm": True, "ts": now.isoformat()})
+    return {"id": request_id, "transfer_id": transfer["id"], "status": "released", "funds_status": "released"}
+
+
+class ReviewIn(BaseModel):
+    decision: Literal["release", "cancel"]
+
+
+@app.get("/review/transfers")
+def review_transfers() -> dict:
+    """Lệnh mức 3 đang giữ, chờ ngân hàng xem xét."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT t.id, t.from_account, t.to_account, t.amount, t.created_at, t.reasons, a.holder_name AS payee_name
+            FROM bank.transfers t LEFT JOIN bank.accounts a ON a.id = t.to_account
+            WHERE t.level = '3' AND t.funds_status = 'held' AND t.status IN ('blocked_pending_hangup', 'held')
+            ORDER BY t.created_at
+            """
+        ).fetchall()
+    return {
+        "transfers": [
+            {
+                "transfer_id": row["id"],
+                "from_account": row["from_account"],
+                "to_account": row["to_account"],
+                "payee_name": row["payee_name"],
+                "amount": int(row["amount"]),
+                "created_at": row["created_at"].isoformat(),
+                "reasons": row["reasons"] if isinstance(row["reasons"], list) else json.loads(row["reasons"] or "[]"),
+            }
+            for row in rows
+        ]
+    }
+
+
+@app.post("/review/transfers/{transfer_id}")
+def review_transfer(transfer_id: str, body: ReviewIn) -> dict:
+    """Đường duy nhất quyết lệnh mức 3: nhả cho người nhận, hoặc huỷ và hoàn tiền."""
+    now = CLOCK.now()
+    with connect() as conn:
+        transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s FOR UPDATE", (transfer_id,)).fetchone()
+        if transfer is None:
+            raise HTTPException(404, "không có lệnh")
+        if (_level_number(transfer["level"]) or 0) != 3:
+            raise HTTPException(409, "Chỉ lệnh mức 3 đi qua xem xét của ngân hàng.")
+        if transfer["funds_status"] != "held" or transfer["status"] not in {"blocked_pending_hangup", "held"}:
+            raise HTTPException(409, NOT_HELD_DETAIL)
+        funds = "released" if body.decision == "release" else "cancelled"
+        _settle(conn, transfer, funds, funds, now)
+        conn.commit()
+    log_choice(transfer["decision_id"], f"review_{body.decision}", 0)
+    if funds == "cancelled" and transfer["decision_id"]:
+        _engine_note("/respond", {"decision_id": transfer["decision_id"], "cancel": True, "ts": now.isoformat()})
+    return {"transfer_id": transfer_id, "status": funds, "funds_status": funds}
 
 
 if __name__ == "__main__":

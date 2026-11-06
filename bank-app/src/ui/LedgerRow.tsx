@@ -1,4 +1,4 @@
-import { Text, View } from "react-native"
+import { Pressable, Text, View } from "react-native"
 
 import { copy } from "../copy/vi"
 import { isHeld, movementTitle, showAccount, vnd, when } from "../format"
@@ -14,13 +14,14 @@ export type LedgerItem = {
   amount: number
   tx_type: string
   status?: string
+  level?: string | number | null
   purpose_text?: string | null
   counterparty_id?: string | null
   counterparty_name?: string | null
   balanceAfter?: number
 }
 
-export function LedgerRow({ item, showBalance = false, testID }: { item: LedgerItem; showBalance?: boolean; testID?: string }) {
+export function LedgerRow({ item, showBalance = false, testID, note, onPress }: { item: LedgerItem; showBalance?: boolean; testID?: string; note?: string; onPress?: () => void }) {
   const type = useType()
   const stamp = when(item.ts)
   const inbound = item.direction === "in"
@@ -28,11 +29,12 @@ export function LedgerRow({ item, showBalance = false, testID }: { item: LedgerI
   const who = payeeName(item.counterparty_name, item.counterparty_id)
   const title = movementTitle({ ...item, counterparty_name: who })
   const party = item.counterparty_id ? `${copy.bankName} · ${showAccount(item.counterparty_id)}` : ""
-  return (
-    <View testID={testID} style={{ flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#F1F5F9", paddingBottom: 12, gap: 12 }}>
+  const body = (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#F1F5F9", paddingBottom: 12, gap: 12 }}>
       <View style={{ flex: 1 }}>
         <Text style={{ color: colors.navy, fontWeight: "600", fontSize: type.body }}>{title}</Text>
         {party ? <Text style={{ color: "#64748B", fontSize: type.small }}>{party}</Text> : null}
+        {note ? <Text style={{ color: colors.warn, fontSize: type.small }}>{note}</Text> : null}
         {showBalance ? <Text style={{ color: "#64748B", fontSize: type.small }}>{stamp.time} · {stamp.date}</Text> : null}
       </View>
       <View>
@@ -50,5 +52,11 @@ export function LedgerRow({ item, showBalance = false, testID }: { item: LedgerI
         )}
       </View>
     </View>
+  )
+  if (!onPress) return <View testID={testID}>{body}</View>
+  return (
+    <Pressable testID={testID} accessibilityRole="button" onPress={onPress}>
+      {body}
+    </Pressable>
   )
 }

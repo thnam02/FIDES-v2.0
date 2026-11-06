@@ -205,9 +205,8 @@ def apply_contract(state: dict, body: dict, now: datetime) -> dict:
         countdown = now + COUNTDOWN
         if funds != "cancelled":
             funds = "held"
-    if body.get("guardian_confirm"):
-        if funds != "cancelled":
-            funds = "released"
+    if body.get("guardian_confirm") and level == "medium" and funds != "cancelled":
+        funds = "released"
     if body.get("proceed") and countdown is not None and now >= countdown and funds != "cancelled":
         funds = "released"
     if body.get("cancel"):

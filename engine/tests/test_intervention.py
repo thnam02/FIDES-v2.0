@@ -88,6 +88,13 @@ def test_money_pattern_reasons_put_call_and_funds_before_habit_and_payee():
     assert out.reason_codes[2] == "new_payee"
 
 
+def test_refund_request_is_not_a_high_risk_purpose():
+    out = evaluate(_facts(call_state="active", task_type="new_typed", new_payee=True, transfer_purpose="refund_request"))
+    assert "R_PURPOSE_HIGH_RISK" not in out.rules_fired
+    signal = next(item for item in out.signals if item.signal_id == "purpose_high_risk")
+    assert signal.status == "absent"
+
+
 def test_restated_lines_are_the_signals_the_headline_rule_names():
     money = evaluate(
         _facts(

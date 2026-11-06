@@ -1,0 +1,79 @@
+# Scene 3 tiếp: tạm dừng → về nhà → Lịch sử → mở lệnh đang giữ → cúp máy → Tiếp tục.
+appId: com.hainamtran.saobank
+---
+- launchApp:
+    clearKeychain: true
+- tapOn: ".*Huỳnh Thị Mận.*"
+- repeat:
+    times: 7
+    commands:
+      - tapOn: "BVC BANK"
+- tapOn:
+    id: "call-stranger"
+- tapOn: "Tiết kiệm"
+- assertVisible: ".*150.000.000 đ.*"
+- tapOn: "Tất toán trước hạn"
+- assertVisible: ".*150.000.000 đ.*"
+- tapOn: "Tất toán trước hạn"
+- assertVisible: ".*150.000.000.*"
+- tapOn: "Về trang chủ"
+- tapOn: "Chuyển tiền"
+- tapOn:
+    id: "new-account-open"
+- tapOn:
+    id: "new-account"
+- inputText: "ZLANB40000000001"
+- tapOn:
+    id: "new-account-go"
+- tapOn:
+    id: "amount"
+- eraseText: 12
+- inputText: "120000000"
+- tapOn:
+    id: "amount-dismiss"
+- scrollUntilVisible:
+    element:
+      id: "purpose-open"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "purpose-open"
+- tapOn: "Mua hàng, dịch vụ"
+- scrollUntilVisible:
+    element:
+      id: "continue-transfer"
+    direction: DOWN
+- tapOn:
+    id: "continue-transfer"
+- scrollUntilVisible:
+    element:
+      id: "confirm-transfer"
+    direction: DOWN
+- tapOn:
+    id: "confirm-transfer"
+- assertVisible: "Tạm dừng để xác minh"
+- tapOn:
+    id: "choice-pause"
+- assertVisible: "Lệnh đang được giữ lại để bạn tự kiểm tra."
+- tapOn: "Về trang chủ"
+- tapOn:
+    id: "home-search"
+- tapOn:
+    id: "history-filter-held"
+- tapOn:
+    id: "history-held"
+- assertVisible:
+    id: "level-2"
+- assertVisible: "Hãy cúp máy trước.*"
+- tapOn:
+    id: "demo-drawer"
+- tapOn:
+    id: "call-end"
+- assertNotVisible: "Hãy cúp máy trước.*"
+- scrollUntilVisible:
+    element:
+      id: "choice-continue"
+    direction: DOWN
+- tapOn:
+    id: "choice-continue"
+- assertVisible: "Chuyển tiền thành công"
