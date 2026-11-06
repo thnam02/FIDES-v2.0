@@ -209,6 +209,23 @@ export function useRegisterGuardian() {
   })
 }
 
+export async function fetchTransfer(id: string) {
+  const response = await bankFetch(`${BANK_URL}/transfer/${id}`)
+  if (!response.ok) await rejectBank(response, "transfer")
+  return response.json() as Promise<{
+    transfer_id: string
+    from_account: string
+    to_account: string
+    amount: number
+    payee_name: string
+    status: components["schemas"]["TransferStatus"]
+    funds_status: "held" | "released" | "cancelled"
+    hold_until: string | null
+    hotline_verified?: boolean
+    decision: components["schemas"]["BankDecision"]
+  }>
+}
+
 export function useRespond() {
   const accountId = useBank((state) => state.accountId) ?? ""
   const client = useQueryClient()

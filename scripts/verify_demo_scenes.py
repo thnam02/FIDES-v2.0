@@ -143,6 +143,18 @@ def main() -> None:
     check("3 guardian button offered (seeded guardian)", "guardian_confirm" in ((held.get("decision") or {}).get("actions") or []), (held.get("decision") or {}).get("actions"))
     status, paused = call("POST", f"/decisions/dec-{held.get('transfer_id')}/choice", {"choice": "pause", "response_ms": 1000})
     check("3 pause keeps money held", status == 200 and paused.get("funds_status") == "held", paused)
+    status, reopened = call("GET", f"/transfer/{held.get('transfer_id')}")
+    check(
+        "3 paused transfer reopens the same level-2 screen",
+        status == 200
+        and reopened.get("status") == "pending_draft"
+        and reopened.get("funds_status") == "held"
+        and (reopened.get("decision") or {}).get("headline") == got["headline"]
+        and (reopened.get("decision") or {}).get("evidence_card", {}).get("reasons_vi") == (held.get("decision") or {}).get("evidence_card", {}).get("reasons_vi"),
+        summary(status, reopened),
+    )
+    row = next((item for item in (call("GET", "/accounts/A0072556/history")[1].get("entries") or []) if item.get("tx_id") == held.get("transfer_id")), None)
+    check("3 history marks the held row as level 2", row is not None and str(row.get("level")) == "2" and row.get("status") == "pending_draft", row)
 
     status, step4 = transfer({
         "from_account": "A0072556", "to_account": "0902102002", "amount": 40_000_000,

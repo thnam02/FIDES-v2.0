@@ -60,6 +60,7 @@ test("history dates shift by the same number of days and keep real gaps", () => 
   assert.deepEqual(byId(reversed), byId(rows))
   assert.equal(presentStamp("2026-09-21T21:41:15+07:00", now, clock), "2026-10-31T21:41:15+07:00")
   assert.equal(isHeld("held"), true)
+  assert.equal(isHeld("pending_draft"), true)
   assert.equal(isHeld("done"), false)
   assert.equal(isHeld(undefined), false)
 })

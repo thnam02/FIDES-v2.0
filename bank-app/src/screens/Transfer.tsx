@@ -782,8 +782,10 @@ export function ResultScreen() {
     const showGuardian = (outcome.actions ?? []).includes("guardian_confirm")
     const tel = policy.data?.hotline_tel || "1900545413"
     const hotline = policy.data?.hotline || copy.hotline
+    const paused = outcome.status === "pending_draft"
     return (
       <Screen call>
+        {paused ? <Header title={copy.level2Title} tools /> : null}
         <View testID="level-2" style={{ gap: 16 }}>
           <Text testID="level-2-headline" style={{ color: colors.navy, fontSize: type.title, fontWeight: "700" }}>{outcome.headline || copy.level2Check}</Text>
           {outcome.strengthened ? <Text testID="level-2-strengthened" style={{ color: colors.warn, fontSize: type.body, fontWeight: "700" }}>{STRENGTHENED_HEADLINE_NOTE}</Text> : null}
@@ -800,7 +802,7 @@ export function ResultScreen() {
           {phase === "choose" ? (
             <>
               <Button testID="choice-hotline" outline label={HOTLINE_BUTTON} onPress={() => void Linking.openURL(`tel:${tel}`)} />
-              <Button testID="choice-pause" label={PAUSE_BUTTON} onPress={() => pick("pause")} />
+              {paused ? null : <Button testID="choice-pause" label={PAUSE_BUTTON} onPress={() => pick("pause")} />}
               {showGuardian ? (
                 <Button testID="choice-guardian" outline label={GUARDIAN_BUTTON} onPress={() => {
                   if (sendGuardian.isPending) return

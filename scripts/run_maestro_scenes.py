@@ -30,6 +30,8 @@ ORDER = (
     ("scene-e.yaml", HOANG),
     ("scene-d.yaml", HOANG),
     ("scene-c.yaml", TRUONG),
+    ("scene-b-cancel.yaml", HUYNH),
+    ("scene-b-resume.yaml", HUYNH),
     ("scene-b-ended.yaml", HUYNH),
     ("scene-b.yaml", HUYNH),
     ("scene-a.yaml", LE),

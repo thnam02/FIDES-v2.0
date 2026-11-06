@@ -2,7 +2,7 @@ import { create } from "zustand"
 
 import type { components } from "./api/openapi"
 
-type Outcome = {
+export type Outcome = {
   transferId: string
   decisionId: string
   status: components["schemas"]["TransferStatus"]

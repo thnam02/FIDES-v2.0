@@ -154,6 +154,7 @@ export const copy = {
   level2Body: "Nếu ai đó đang hướng dẫn bạn qua điện thoại, kể cả người tự nhận là công an hay nhân viên ngân hàng, hãy cúp máy và tự gọi ngân hàng theo số in sau thẻ.",
   hotline: "1900 54 54 13",
   level3Title: "Giao dịch đang được ngân hàng xem xét",
+  level3Held: "Ngân hàng đang xem xét",
   level3Mock: "Mô phỏng chính sách tạm giữ 24 giờ của ngân hàng",
   pausedDraft: "Lệnh đang được giữ lại để bạn tự kiểm tra.",
   cancelledTransfer: "Giao dịch đã huỷ",

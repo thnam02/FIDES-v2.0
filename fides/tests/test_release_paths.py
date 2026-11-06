@@ -169,6 +169,39 @@ def test_no_double_pay_after_a_cancel():
     assert balance(HUYNH) == sender_before
 
 
+def test_paused_level2_reopens_the_same_decision_then_cancel_refunds():
+    sender_before = balance(HUYNH)
+    out = held_level2("ZLAN120000000001", amount=2_200_000)
+    tid = out["transfer_id"]
+    paused = ok("POST", f"/decisions/dec-{tid}/choice", {"choice": "pause", "response_ms": 0})
+    assert paused["status"] == "pending_draft"
+    got = ok("GET", f"/transfer/{tid}")
+    assert got["status"] == "pending_draft"
+    assert got["funds_status"] == "held"
+    assert got["decision"]["level"] == 2
+    assert got["decision"]["headline"] == out["decision"]["headline"]
+    assert got["decision"]["evidence_card"]["reasons_vi"] == out["decision"]["evidence_card"]["reasons_vi"]
+    assert got["decision"]["evidence_card"]["restated_vi"] == out["decision"]["evidence_card"]["restated_vi"]
+    assert got["decision"]["strengthened"] == out["decision"]["strengthened"]
+    row = next(item for item in ok("GET", f"/accounts/{HUYNH}/history")["entries"] if item["tx_id"] == tid)
+    assert row["status"] == "pending_draft"
+    assert str(row["level"]) == "2"
+    ok("POST", f"/transfer/{tid}/respond", {"cancel": True})
+    assert balance(HUYNH) == sender_before
+
+
+def test_paused_level2_proceed_after_hangup():
+    out = held_level2("ZANH000000000099", amount=2_100_000)
+    tid = out["transfer_id"]
+    ok("POST", f"/decisions/dec-{tid}/choice", {"choice": "pause", "response_ms": 0})
+    payee_before = balance("ZANH000000000099")
+    status, payload = call("POST", f"/transfer/{tid}/respond", {"proceed": True, "call": CALL})
+    assert status == 409, payload
+    released = ok("POST", f"/transfer/{tid}/respond", {"proceed": True, "call": ENDED})
+    assert released["funds_status"] == "released"
+    assert balance("ZANH000000000099") == payee_before + 2_100_000
+
+
 def test_paused_transfer_is_refunded_when_cancelled():
     sender_before = balance(HUYNH)
     out = held_level2("ZLANB40000000001", amount=3_000_000)

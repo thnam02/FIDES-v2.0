@@ -776,6 +776,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExperimentSessionReceipt"
+  /transfer/{id}:
+    get:
+      tags: [Bank core]
+      operationId: getTransfer
+      summary: Đọc một lệnh để mở lại màn mức 2 hoặc mức 3
+      description: >
+        Cùng decision (câu lớn, lý do, restated_vi, strengthened, lock_until)
+        như lúc tạo lệnh. Không đổi tiền. Lệnh mức 2 quá hạn thì huỷ và hoàn
+        trước khi trả.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: transfer_id.
+      responses:
+        "200":
+          description: Lệnh
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/TransferResponse"
+                  - type: object
+                    properties:
+                      from_account: {type: string}
+                      to_account: {type: string}
+                      amount: {type: integer}
+                      payee_name: {type: string}
+                      hotline_verified: {type: boolean}
+        "404":
+          description: Không có lệnh
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /transfer/{id}/respond:
     post:
       tags: [Bank core]
@@ -1881,6 +1918,10 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/TransferStatus"
+        level:
+          type: string
+          nullable: true
+          description: Mức can thiệp của lệnh, nếu dòng là chuyển khoản.
         counterparty_id:
           type: string
           nullable: true

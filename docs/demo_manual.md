@@ -89,6 +89,8 @@ Nút, từ trên xuống: “Gọi tổng đài ngân hàng”, “Tạm dừng 
 
 Bấm “Tạm dừng để xác minh”. Màn hình: “Lệnh đang được giữ lại để bạn tự kiểm tra.” và số tổng đài `1900 54 54 13`. 120 triệu vẫn bị giữ. Bấm “Về trang chủ”. Không cúp máy.
 
+Sau khi tạm dừng, lệnh nằm trong Tra cứu giao dịch, lọc “Đang giữ”. Bấm dòng đó để mở lại cùng màn mức 2 (câu lớn, lý do, dòng cúp máy, đếm ngược nếu có). Từ đó khách gọi tổng đài, gửi giám hộ, huỷ (hoàn tiền), hoặc tiếp tục khi đã cúp máy — và, nếu tăng cường, sau khoá 30 phút hoặc tổng đài mở khoá. Máy chủ vẫn chặn Tiếp tục qua `block_proceed`. Lệnh mức 3 không bấm được: “Ngân hàng đang xem xét”.
+
 Nói: “Vừa tất toán sổ, rồi chuyển cho người lạ trong lúc nghe máy. Đó là một nhóm dấu hiệu. Phải cúp máy mới được tiếp tục. Khách chọn tạm dừng, tiền vẫn nằm ở ngân hàng.”
 
 ## 4. Huỳnh Thị Mận, mức 2 tăng cường

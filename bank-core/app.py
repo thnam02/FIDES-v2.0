@@ -996,6 +996,7 @@ def history(account_id: str, before: str | None = None) -> dict:
         rows = conn.execute(
             """
             SELECT e.tx_id, e.ts, e.direction, e.amount, e.tx_type, e.purpose_text, e.status,
+                   t.level AS transfer_level,
                    COALESCE(NULLIF(e.counterparty_id, ''), x.other_id, pair.other_id) AS counterparty_id,
                    COALESCE(NULLIF(cp.holder_name, ''), NULLIF(ben.holder_name, '')) AS counterparty_name
             FROM bank.entries e
@@ -1033,6 +1034,7 @@ def history(account_id: str, before: str | None = None) -> dict:
                 "tx_type": row["tx_type"],
                 "purpose_text": row["purpose_text"],
                 "status": row["status"],
+                "level": row["transfer_level"],
                 "counterparty_id": row["counterparty_id"],
                 "counterparty_name": row["counterparty_name"],
             }
@@ -1681,6 +1683,71 @@ def cancel_level1(transfer_id: str, body: Level1Action | None = None) -> dict:
     return {"transfer_id": transfer_id, "status": "expired", "funds_status": "cancelled"}
 
 
+def _json_field(value, default):
+    if value is None:
+        return default
+    if isinstance(value, (bytes, str)):
+        return json.loads(value)
+    return value
+
+
+def _iso_stamp(value) -> str | None:
+    if value is None or value == "":
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _decision_from_transfer(transfer: dict) -> dict:
+    flags = _load_flags(transfer)
+    level = _level_number(transfer["level"])
+    reasons = _json_field(transfer["reasons"], [])
+    actions = _json_field(transfer["actions"], [])
+    card = dict(flags.get("evidence_card") or {})
+    if not card.get("reasons_vi"):
+        card = {
+            "signals": card.get("signals") or [],
+            "reasons_vi": [item.get("text") if isinstance(item, dict) else str(item) for item in reasons],
+            "restated_vi": list(card.get("restated_vi") or []),
+            "baseline_quality": card.get("baseline_quality") or "none",
+            "episode_id": card.get("episode_id") or "",
+        }
+    decided = {
+        "level": level,
+        "unscored": transfer["level"] == "unscored",
+        "actions": actions,
+        "reasons": reasons,
+        "signals_present": flags.get("signals_present") or [],
+        "rules_fired": flags.get("rules_fired") or [],
+        "evidence_card": card,
+        "intervention": flags.get("intervention"),
+        "groups_fired": flags.get("groups_fired") or [],
+        "strengthened": bool(flags.get("strengthened")),
+        "continue_requires_hangup": bool(flags.get("continue_requires_hangup")),
+        "lock_minutes": int(flags.get("lock_minutes") or 0),
+        "lock_until": flags.get("lock_until"),
+        "headline": flags.get("headline") or "",
+    }
+    return _decision_payload(level, decided)
+
+
+def _transfer_view(transfer: dict, payee_name: str | None) -> dict:
+    flags = _load_flags(transfer)
+    return {
+        "transfer_id": transfer["id"],
+        "from_account": transfer["from_account"],
+        "to_account": transfer["to_account"],
+        "amount": int(transfer["amount"]),
+        "payee_name": payee_name or "",
+        "status": transfer["status"],
+        "funds_status": transfer["funds_status"],
+        "hold_until": _iso_stamp(transfer["hold_until"]),
+        "hotline_verified": bool(flags.get("hotline_verified")),
+        "decision": _decision_from_transfer(transfer),
+    }
+
+
 def _decision_payload(level: int | None, decided: dict) -> dict:
     unscored = bool(decided.get("unscored"))
     shown = None if unscored and level is None else level if level in {0, 1, 2, 3} else 0
@@ -1888,6 +1955,25 @@ def send_guardian_request(transfer_id: str) -> dict:
         conn.commit()
     log_choice(transfer["decision_id"], "guardian_request", 0)
     return {"transfer_id": transfer_id, "request_id": request_id, "status": "sent", "message": GUARDIAN_SENT}
+
+
+@app.get("/transfer/{transfer_id}")
+def get_transfer(transfer_id: str) -> dict:
+    """Màn mức 2/3 sau khi tạm dừng: cùng câu lớn, lý do, khoá. Không nhả tiền."""
+    now = CLOCK.now()
+    with connect() as conn:
+        _ensure_intervention(conn)
+        transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s", (transfer_id,)).fetchone()
+        if transfer is None:
+            raise HTTPException(404, "không có lệnh")
+        if _expire_hold(conn, transfer, now):
+            conn.commit()
+            _note_expired([transfer["decision_id"]])
+            transfer = conn.execute("SELECT * FROM bank.transfers WHERE id = %s", (transfer_id,)).fetchone()
+        if transfer is None:
+            raise HTTPException(404, "không có lệnh")
+        payee = conn.execute("SELECT holder_name FROM bank.accounts WHERE id = %s", (transfer["to_account"],)).fetchone()
+    return _transfer_view(transfer, None if payee is None else payee["holder_name"])
 
 
 @app.post("/transfer/{transfer_id}/respond")
